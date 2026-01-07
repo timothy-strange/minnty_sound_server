@@ -1,60 +1,48 @@
 mod audio;
 
-use audio::linux_pulse::{PulseManager, AudioDeviceInfo};
-use std::sync::Arc;
-use std::time::Duration;
+use std::io::Write;
+use audio::linux_pulse::PulseManager;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-
-/// The central state of the application.
-struct AppState {
-    audio_manager: PulseManager,
-}
+use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Minnty Sound Server starting...");
+    println!("Minnty Sound Server starting");
 
-    // 1. Initialize PulseAudio Manager
-    let audio_manager = PulseManager::new()?;
-    let state = Arc::new(AppState { audio_manager });
+    let mut pulse = PulseManager::new()?;
 
-    // 2. Perform initial probe
-    match state.audio_manager.get_default_device_info() {
-        Ok(info) => {
-            println!("--- System Audio Found ---");
-            println!("Device:  {}", info.name);
-            println!("Rate:    {}Hz", info.sample_rate);
-            println!("Format:  {:?}", info.format);
-        }
-        Err(e) => {
-            eprintln!("Initialization Error: {}", e);
-            std::process::exit(1);
-        }
-    }
+    // Start background capture and get a reference to the peak level
+    let shared_peak = pulse.start_background_capture()?;
 
-    println!("\nServer is running.");
-    println!("Press [q] to quit.");
+    println!("Capture started. Press 'q' to quit.");
 
-    // 3. Enter Raw Mode to capture keys without Enter
     enable_raw_mode()?;
 
     loop {
-        // Poll for a keyboard event every 100ms
-        if event::poll(Duration::from_millis(100))? {
+        // 1. Handle Input
+        if event::poll(Duration::from_millis(10))? {
             if let Event::Key(key) = event::read()? {
-                // Check if 'q' was pressed (ignoring key release events on Windows/Linux)
                 if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
                     break;
                 }
             }
         }
+
+        // 2. Read the peak value from the background thread
+        let bits = shared_peak.load(std::sync::atomic::Ordering::Relaxed);
+        let peak = f32::from_bits(bits);
+
+        // 3. Render Visuals
+        let width = 40;
+        let progress = (peak * width as f32) as usize;
+        let bar = "█".repeat(progress.min(width));
         
-        // This is where you would check other state, like network status
+        print!("\r\x1b[32mLevel: [{:<40}]\x1b[0m\x1b[K", bar);
+        std::io::stdout().flush()?;
     }
 
-    // 4. Cleanup
     disable_raw_mode()?;
-    drop(state);
-    println!("\rQuitting.");
+    println!("\nShutting down.");
+
     Ok(())
 }
