@@ -1,48 +1,68 @@
 mod audio;
 
-use std::io::Write;
 use audio::linux_pulse::PulseManager;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::time::Duration;
+use axum::{
+    extract::State,
+    response::{Html, IntoResponse},
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Serialize;
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::net::SocketAddr;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Minnty Sound Server starting");
+#[derive(Clone)]
+struct AppState {
+    is_running: Arc<AtomicBool>,
+}
 
+#[derive(Serialize)]
+struct StatusResponse {
+    running: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut pulse = PulseManager::new()?;
+    let is_running = Arc::new(AtomicBool::new(false));
+    let state = AppState { is_running: is_running.clone() };
 
-    // Start background capture and get a reference to the peak level
-    let shared_peak = pulse.start_background_capture()?;
+    // We pass the atomic bool to the capture logic
+    // Note: We'll modify start_background_capture to respect this bool next
+    let _shared_peak = pulse.start_background_capture(is_running.clone())?;
 
-    println!("Capture started. Press 'q' to quit.");
+    let app = Router::new()
+        .route("/", get(index_handler))
+        .route("/status", get(get_status))
+        .route("/toggle", post(toggle_server))
+        .with_state(state);
 
-    enable_raw_mode()?;
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let url = format!("http://{}", addr);
+    
+    println!("Minnty Sound Server UI running at http://{}", addr);
 
-    loop {
-        // 1. Handle Input
-        if event::poll(Duration::from_millis(10))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
-                }
-            }
-        }
+    // This opens the default browser automatically
+    let _ = open::that(url);
 
-        // 2. Read the peak value from the background thread
-        let bits = shared_peak.load(std::sync::atomic::Ordering::Relaxed);
-        let peak = f32::from_bits(bits);
-
-        // 3. Render Visuals
-        let width = 40;
-        let progress = (peak * width as f32) as usize;
-        let bar = "█".repeat(progress.min(width));
-        
-        print!("\r\x1b[32mLevel: [{:<40}]\x1b[0m\x1b[K", bar);
-        std::io::stdout().flush()?;
-    }
-
-    disable_raw_mode()?;
-    println!("\nShutting down.");
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn index_handler() -> Html<&'static str> {
+    Html(include_str!("index.html"))
+}
+
+async fn get_status(State(state): State<AppState>) -> Json<StatusResponse> {
+    Json(StatusResponse {
+        running: state.is_running.load(Ordering::Relaxed),
+    })
+}
+
+async fn toggle_server(State(state): State<AppState>) -> impl IntoResponse {
+    let current = state.is_running.load(Ordering::Relaxed);
+    state.is_running.store(!current, Ordering::Relaxed);
+    Json(StatusResponse { running: !current })
 }

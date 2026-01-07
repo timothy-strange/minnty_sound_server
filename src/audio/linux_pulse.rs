@@ -113,6 +113,7 @@ impl PulseManager {
     
     pub fn start_background_capture(
         &mut self,
+        is_running: std::sync::Arc<std::sync::atomic::AtomicBool>, // Add this parameter
     ) -> Result<std::sync::Arc<std::sync::atomic::AtomicU32>, Box<dyn std::error::Error>> {
         use pulse::sample::Spec;
         use pulse::stream::{FlagSet, Stream};
@@ -129,50 +130,38 @@ impl PulseManager {
             channels: 2,
         };
 
-        // Request low latency: 
-        // fragsize sets the size of fragments in bytes. 
-        // 1024 bytes at 44.1kHz stereo is ~5ms of audio.
         let buffer_attr = BufferAttr {
-            maxlength: u32::MAX,
-            tlength: u32::MAX,
-            prebuf: u32::MAX,
-            minreq: u32::MAX,
-            fragsize: 1024, 
+            maxlength: u32::MAX, tlength: u32::MAX, prebuf: u32::MAX, minreq: u32::MAX, fragsize: 1024,
         };
 
         self.mainloop.lock();
-
-        let mut stream = Stream::new(&mut self.context, "CaptureStream", &spec, None)
+        let stream = Stream::new(&mut self.context, "CaptureStream", &spec, None)
             .ok_or("Failed to create stream")?;
-
         let stream_ptr = Box::into_raw(Box::new(stream));
 
         unsafe {
             (*stream_ptr).set_read_callback(Some(Box::new(move |_bytes| {
                 let s = &mut *stream_ptr;
                 
-                // Loop peek to clear all available data fragments in the buffer
                 while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
-                    let samples = std::slice::from_raw_parts(
-                        data.as_ptr() as *const i16, 
-                        data.len() / 2
-                    );
-
-                    let mut max_vol = 0.0f32;
-                    for &sample in samples {
-                        let val = (sample as f32 / i16::MAX as f32).abs();
-                        if val > max_vol { max_vol = val; }
+                    // ONLY process if the server is toggled ON
+                    if is_running.load(Ordering::Relaxed) {
+                        let samples = std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2);
+                        let mut max_vol = 0.0f32;
+                        for &sample in samples {
+                            let val = (sample as f32 / i16::MAX as f32).abs();
+                            if val > max_vol { max_vol = val; }
+                        }
+                        peak_ptr.store(max_vol.to_bits(), Ordering::Relaxed);
+                    } else {
+                        // Reset meter when stopped
+                        peak_ptr.store(0.0f32.to_bits(), Ordering::Relaxed);
                     }
-
-                    peak_ptr.store(max_vol.to_bits(), Ordering::Relaxed);
                     let _ = s.discard();
                 }
             })));
-
-            // Pass &buffer_attr here to apply the low-latency settings
             (*stream_ptr).connect_record(None, Some(&buffer_attr), FlagSet::ADJUST_LATENCY)?;
         }
-        
         self.mainloop.unlock();
         Ok(peak_level)
     }

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Minnty Sound Server</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                background: #121212;
+                color: #e0e0e0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+            }
+            .container {
+                text-align: center;
+                padding: 2rem;
+                border: 1px solid #333;
+                border-radius: 8px;
+                background: #1e1e1e;
+            }
+            h1 { color: #4CAF50; }
+            .status { margin-top: 1rem; color: #888; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Minnty Sound Server</h1>
+            <p id="status-text">Server is Stopped</p>
+            <button id="toggle-btn" onclick="toggleServer()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">
+                Start Server
+            </button>
+        </div>
+
+        <script>
+            async function updateStatus() {
+                const response = await fetch('/status');
+                const data = await response.json();
+                updateUI(data.running);
+            }
+
+            async function toggleServer() {
+                const response = await fetch('/toggle', { method: 'POST' });
+                const data = await response.json();
+                updateUI(data.running);
+            }
+
+            function updateUI(isRunning) {
+                const btn = document.getElementById('toggle-btn');
+                const status = document.getElementById('status-text');
+                
+                if (isRunning) {
+                    btn.innerText = "Stop Server";
+                    btn.style.background = "#f44336";
+                    status.innerText = "Server is Running...";
+                    status.style.color = "#4CAF50";
+                } else {
+                    btn.innerText = "Start Server";
+                    btn.style.background = "#4CAF50";
+                    status.innerText = "Server is Stopped";
+                    status.style.color = "#888";
+                }
+            }
+
+            // Initial check
+            updateStatus();
+        </script>
+    </body>
+</html>
