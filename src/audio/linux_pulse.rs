@@ -1,8 +1,9 @@
 use libpulse_binding as pulse;
-use pulse::context::Context;
+use pulse::context::{Context, State};
 use pulse::mainloop::standard::Mainloop;
-
 use pulse::sample::Format;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 #[derive(Debug)]
 pub struct PulseAudioInfo {
@@ -13,42 +14,57 @@ pub struct PulseAudioInfo {
 }
 
 pub fn probe_pulseaudio() -> Result<PulseAudioInfo, Box<dyn std::error::Error>> {
-    // create mainloop
+    // 1. Setup Mainloop and Context
     let mut mainloop = Mainloop::new().ok_or("Failed to create mainloop")?;
-
-    // create context
-    let mut context = Context::new(&mainloop, "Minnty Sound Server")
-        .ok_or("Failed to create context")?;
+    let mut context = Context::new(&mainloop, "Minnty Probe").ok_or("Context creation failed")?;
+    
     context.connect(None, pulse::context::FlagSet::NOFLAGS, None)?;
 
-    // wait for context to be ready
-    loop {
+    // 2. Drive the mainloop until Context is Ready
+    while context.get_state() != State::Ready {
+        mainloop.iterate(false);
         match context.get_state() {
-            pulse::context::State::Ready => break,
-            pulse::context::State::Failed | pulse::context::State::Terminated => {
-                return Err("PulseAudio context failed".into());
-            }
-            _ => {
-                mainloop.iterate(false);
-            }
+            State::Failed | State::Terminated => return Err("PulseAudio context failed".into()),
+            _ => (),
         }
     }
 
-    // Get default sink name
-    let server_name = context.get_server().unwrap_or_else(|| "unknown".into());
-    let default_sink_name = context.get_server().unwrap_or_else(|| "unknown".into());
+    // 3. Fetch the Default Sink Name
+    let sink_name_store = Rc::new(RefCell::new(None));
+    let sink_name_cloned = Rc::clone(&sink_name_store);
 
-    // Print what we got
-    println!("Server: {}", server_name);
-    println!("Default sink: {:?}", default_sink_name);
+    let op_server = context.introspect().get_server_info(move |info| {
+        if let Some(name) = &info.default_sink_name {
+            *sink_name_cloned.borrow_mut() = Some(name.to_string());
+        }
+    });
 
-    // Note: full sink info retrieval is more complicated and requires async callbacks;
-    // for minimal probe, we can skip sample rate/channels for now
+    // PulseAudio operations are async; we must "pump" the mainloop until the operation is done
+    while op_server.get_state() == pulse::operation::State::Running {
+        mainloop.iterate(false);
+    }
 
-    Ok(PulseAudioInfo {
-        default_sink: default_sink_name,
-        sample_rate: 48000,   // placeholder
-        channels: 2,          // placeholder
-        sample_format: Format::S16le, // placeholder
-    })
+    let default_sink_name = sink_name_store.borrow_mut().take()
+        .ok_or("Could not determine default sink name")?;
+
+    // 4. Fetch detailed info for that specific Sink
+    let final_info = Rc::new(RefCell::new(None));
+    let final_info_cloned = Rc::clone(&final_info);
+
+    let op_sink = context.introspect().get_sink_info_by_name(&default_sink_name, move |info| {
+        if let pulse::callbacks::ListResult::Item(i) = info {
+            *final_info_cloned.borrow_mut() = Some(PulseAudioInfo {
+                default_sink: i.name.as_ref().map(|s| s.to_string()).unwrap_or_default(),
+                sample_rate: i.sample_spec.rate,
+                channels: i.sample_spec.channels,
+                sample_format: i.sample_spec.format,
+            });
+        }
+    });
+
+    while op_sink.get_state() == pulse::operation::State::Running {
+        mainloop.iterate(false);
+    }
+
+    final_info.borrow_mut().take().ok_or("Failed to fetch detailed sink info".into())
 }
