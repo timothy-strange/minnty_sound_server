@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,6 +13,9 @@
       --muted: #94a3b8;
       --bar-bg: #1f2937;
       --bar-fill: #22c55e;
+      --select-bg: rgba(34, 197, 94, 0.18);
+      --select-border: #22c55e;
+      --focus-border: #38bdf8;
     }
 
     body {
@@ -22,10 +26,19 @@
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+    /* Prevent selection/caret behaviors */
+    body, .sink, .name, .value, button {
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+      caret-color: transparent;
+    }
+
     h1 {
-      margin-bottom: 16px;
-      font-size: 20px;
+      margin-bottom: 24px;
+      font-size: 22px;
       font-weight: 600;
+      text-align: center;
     }
 
     .sink {
@@ -34,6 +47,8 @@
       align-items: center;
       gap: 12px;
       margin-bottom: 10px;
+      cursor: pointer;
+      outline: none;
     }
 
     .name {
@@ -41,6 +56,26 @@
       white-space: nowrap;
       text-overflow: ellipsis;
       color: var(--muted);
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+    }
+
+    /* Hover = affordance only */
+    .sink:hover .name {
+      color: var(--fg);
+    }
+
+    /* Focus = keyboard location */
+    .sink:focus-visible .name {
+      border-color: var(--focus-border);
+    }
+
+    /* Selected = explicit choice */
+    .sink.selected .name {
+      color: var(--fg);
+      background: var(--select-bg);
+      border-color: var(--select-border);
     }
 
     .meter {
@@ -62,22 +97,83 @@
       font-variant-numeric: tabular-nums;
       font-size: 12px;
     }
+
+    .actions {
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: none;
+      background: #22c55e;
+      color: #022c22;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--focus-border);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 
 <body>
-  <h1>Audio Outputs</h1>
+  <h1>Minnty Sound Server</h1>
+
   <div id="sinks"></div>
+
+  <div class="actions">
+    <button id="startBtn" disabled>Start Server</button>
+  </div>
 
   <script>
     const container = document.getElementById("sinks");
-    const rows = new Map();
+    const startBtn = document.getElementById("startBtn");
+    const rows = [];
+    const rowByName = new Map();
+    let selectedSink = null;
+
+    function resetSelection() {
+      selectedSink = null;
+      startBtn.disabled = true;
+      for (const r of rows) r.row.classList.remove("selected");
+    }
+
+    function selectSink(name) {
+      if (selectedSink === name) return;
+
+      for (const r of rows) r.row.classList.remove("selected");
+
+      const r = rowByName.get(name);
+      if (!r) return;
+
+      r.row.classList.add("selected");
+      selectedSink = name;
+      startBtn.disabled = false;
+    }
+
+    function consumeLeftRight(e) {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
 
     function getRow(name) {
-      if (rows.has(name)) return rows.get(name);
+      if (rowByName.has(name)) return rowByName.get(name);
 
       const row = document.createElement("div");
       row.className = "sink";
+      row.tabIndex = 0;
 
       const label = document.createElement("div");
       label.className = "name";
@@ -97,10 +193,62 @@
       row.append(label, meter, value);
       container.appendChild(row);
 
-      const obj = { fill, value };
-      rows.set(name, obj);
+      row.addEventListener("click", () => selectSink(name));
+
+      row.addEventListener("keydown", (e) => {
+        consumeLeftRight(e);
+
+        const idx = rows.findIndex(r => r.row === row);
+
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectSink(name);
+          return;
+        }
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (idx < rows.length - 1) rows[idx + 1].row.focus();
+          else startBtn.focus();
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (idx > 0) rows[idx - 1].row.focus();
+          return;
+        }
+      });
+
+      const obj = { row, fill, value };
+      rows.push(obj);
+      rowByName.set(name, obj);
       return obj;
     }
+
+    startBtn.addEventListener("keydown", (e) => {
+      consumeLeftRight(e);
+
+      if ((e.key === "Enter" || e.key === " ") && !startBtn.disabled) {
+        e.preventDefault();
+        startBtn.click();
+        return;
+      }
+
+      if (e.key === "ArrowUp" && rows.length > 0) {
+        e.preventDefault();
+        rows[rows.length - 1].row.focus();
+        return;
+      }
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault(); // keep focus on button
+        return;
+      }
+    });
+
+    // Also consume Left/Right anywhere to avoid losing focus/scrolling quirks.
+    document.addEventListener("keydown", consumeLeftRight, { capture: true });
 
     async function update() {
       try {
@@ -114,13 +262,15 @@
           row.fill.style.width = pct.toFixed(1) + "%";
           row.value.textContent = s.peak.toFixed(2);
         }
-      } catch (_) {
-        // ignore transient errors during startup/shutdown
-      }
+      } catch (_) { }
     }
+
+    // Ensure reload starts with no selection and disabled button.
+    resetSelection();
 
     setInterval(update, 50);
     update();
   </script>
 </body>
+
 </html>
