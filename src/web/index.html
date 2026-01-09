@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Minnty Sound Server</title>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --fg: #e5e7eb;
+      --muted: #94a3b8;
+      --bar-bg: #1f2937;
+      --bar-fill: #22c55e;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    h1 {
+      margin-bottom: 16px;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .sink {
+      display: grid;
+      grid-template-columns: 380px 1fr 60px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .name {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      color: var(--muted);
+    }
+
+    .meter {
+      height: 14px;
+      background: var(--bar-bg);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+
+    .fill {
+      height: 100%;
+      width: 0%;
+      background: var(--bar-fill);
+      transition: width 60ms linear;
+    }
+
+    .value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Audio Outputs</h1>
+  <div id="sinks"></div>
+
+  <script>
+    const container = document.getElementById("sinks");
+    const rows = new Map();
+
+    function getRow(name) {
+      if (rows.has(name)) return rows.get(name);
+
+      const row = document.createElement("div");
+      row.className = "sink";
+
+      const label = document.createElement("div");
+      label.className = "name";
+      label.textContent = name;
+
+      const meter = document.createElement("div");
+      meter.className = "meter";
+
+      const fill = document.createElement("div");
+      fill.className = "fill";
+      meter.appendChild(fill);
+
+      const value = document.createElement("div");
+      value.className = "value";
+      value.textContent = "0.00";
+
+      row.append(label, meter, value);
+      container.appendChild(row);
+
+      const obj = { fill, value };
+      rows.set(name, obj);
+      return obj;
+    }
+
+    async function update() {
+      try {
+        const res = await fetch("/api/levels", { cache: "no-store" });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        for (const s of data) {
+          const row = getRow(s.name);
+          const pct = Math.max(0, Math.min(1, s.peak)) * 100;
+          row.fill.style.width = pct.toFixed(1) + "%";
+          row.value.textContent = s.peak.toFixed(2);
+        }
+      } catch (_) {
+        // ignore transient errors during startup/shutdown
+      }
+    }
+
+    setInterval(update, 50);
+    update();
+  </script>
+</body>
+</html>
