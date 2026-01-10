@@ -102,6 +102,8 @@
       margin-top: 24px;
       display: flex;
       justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     button {
@@ -132,20 +134,57 @@
   <div id="sinks"></div>
 
   <div class="actions">
-    <button id="startBtn" disabled>Start Server</button>
+    <button id="startBtn" disabled>Start Streaming</button>
+    <button id="monitorBtn" disabled>Monitor Stream</button>
+    <button id="shutdownBtn">Shutdown Server</button>
+  </div>
+
+  <div id="monitorRow" class="sink">
+    <div class="name">Monitor Level</div>
+    <div class="meter"><div class="fill" id="monitorFill"></div></div>
+    <div class="value" id="monitorValue">0.00</div>
   </div>
 
   <script>
     const container = document.getElementById("sinks");
     const startBtn = document.getElementById("startBtn");
+    const monitorBtn = document.getElementById("monitorBtn");
+    const shutdownBtn = document.getElementById("shutdownBtn");
+    const monitorFill = document.getElementById("monitorFill");
+    const monitorValue = document.getElementById("monitorValue");
     const rows = [];
     const rowByName = new Map();
     let selectedSink = null;
+    let isStreaming = false;
+    let isMonitoring = false;
 
     function resetSelection() {
       selectedSink = null;
-      startBtn.disabled = true;
       for (const r of rows) r.row.classList.remove("selected");
+      updateStartButton();
+      updateMonitorButton();
+    }
+
+    function updateStartButton() {
+      if (isStreaming) {
+        startBtn.textContent = "Stop Streaming";
+        startBtn.disabled = false;
+        return;
+      }
+
+      startBtn.textContent = "Start Streaming";
+      startBtn.disabled = !selectedSink;
+    }
+
+    function updateMonitorButton() {
+      if (!isStreaming) {
+        monitorBtn.textContent = "Monitor Stream";
+        monitorBtn.disabled = true;
+        return;
+      }
+
+      monitorBtn.textContent = isMonitoring ? "Stop Monitor" : "Monitor Stream";
+      monitorBtn.disabled = false;
     }
 
     function selectSink(name) {
@@ -158,7 +197,7 @@
 
       r.row.classList.add("selected");
       selectedSink = name;
-      startBtn.disabled = false;
+      updateStartButton();
     }
 
     function consumeLeftRight(e) {
@@ -265,11 +304,78 @@
       } catch (_) { }
     }
 
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/api/stream/status", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        isStreaming = !!data.running;
+        if (data.sink) {
+          selectSink(data.sink);
+        } else {
+          updateStartButton();
+        }
+        if (!isStreaming) {
+          isMonitoring = false;
+        }
+        updateMonitorButton();
+      } catch (_) { }
+    }
+
+    async function refreshMonitor() {
+      try {
+        const res = await fetch("/api/monitor/level", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        isMonitoring = !!data.active;
+        const pct = Math.max(0, Math.min(1, data.peak || 0)) * 100;
+        monitorFill.style.width = pct.toFixed(1) + "%";
+        monitorValue.textContent = (data.peak || 0).toFixed(2);
+        updateMonitorButton();
+      } catch (_) { }
+    }
+
+    startBtn.addEventListener("click", async () => {
+      if (isStreaming) {
+        await fetch("/api/stream/stop", { method: "POST" });
+      } else if (selectedSink) {
+        await fetch("/api/stream/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sink: selectedSink }),
+        });
+      }
+      await refreshStatus();
+      await refreshMonitor();
+    });
+
+    monitorBtn.addEventListener("click", async () => {
+      if (!isStreaming) return;
+      if (isMonitoring) {
+        await fetch("/api/monitor/stop", { method: "POST" });
+      } else {
+        await fetch("/api/monitor/start", { method: "POST" });
+      }
+      await refreshMonitor();
+    });
+
+    shutdownBtn.addEventListener("click", async () => {
+      await fetch("/api/shutdown", { method: "POST" });
+      startBtn.disabled = true;
+      monitorBtn.disabled = true;
+      shutdownBtn.disabled = true;
+    });
+
     // Ensure reload starts with no selection and disabled button.
     resetSelection();
 
     setInterval(update, 50);
+    setInterval(refreshStatus, 1000);
+    setInterval(refreshMonitor, 100);
     update();
+    refreshStatus();
+    refreshMonitor();
+
   </script>
 </body>
 

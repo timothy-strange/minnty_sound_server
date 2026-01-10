@@ -1,22 +1,22 @@
+use crate::audio::capture::{CaptureSession, PcmFrame};
+use crate::control::messages::StreamConfig;
 use libpulse_binding as pulse;
 use pulse::context::{Context, FlagSet, State};
 use pulse::def::BufferAttr;
 use pulse::mainloop::threaded::Mainloop;
 use pulse::sample::Format;
 use pulse::stream::{FlagSet as StreamFlagSet, Stream};
+use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
-
-#[derive(Clone, Debug)]
-pub struct SinkLevel {
-    pub name: String,
-    pub peak: f32,
-}
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
 struct SinkMeter {
     name: String,
     peak: Arc<AtomicU32>,
+    stream: Option<NonNull<Stream>>,
 }
 
 pub struct PulseManager {
@@ -106,8 +106,12 @@ impl PulseManager {
             match msg {
                 Msg::Item(name) => {
                     let peak = Arc::new(AtomicU32::new(0f32.to_bits()));
-                    self.start_sink_monitor(&name, peak.clone())?;
-                    self.meters.push(SinkMeter { name, peak });
+                    let stream = self.start_sink_monitor(&name, peak.clone())?;
+                    self.meters.push(SinkMeter {
+                        name,
+                        peak,
+                        stream: Some(stream),
+                    });
                 }
                 Msg::End => break,
                 Msg::Error => return Err("PulseAudio sink enumeration failed".into()),
@@ -121,7 +125,7 @@ impl PulseManager {
         &mut self,
         sink_name: &str,
         peak: Arc<AtomicU32>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<NonNull<Stream>, Box<dyn std::error::Error>> {
         let spec = pulse::sample::Spec {
             format: Format::S16le,
             rate: 44100,
@@ -141,11 +145,12 @@ impl PulseManager {
         let stream =
             Stream::new(&mut self.context, "meter", &spec, None).ok_or("Stream creation failed")?;
 
-        let stream_ptr = Box::into_raw(Box::new(stream));
+        let stream_ptr = NonNull::new(Box::into_raw(Box::new(stream)))
+            .ok_or("Stream pointer allocation failed")?;
 
         unsafe {
-            (*stream_ptr).set_read_callback(Some(Box::new(move |_n| {
-                let s = &mut *stream_ptr;
+            (*stream_ptr.as_ptr()).set_read_callback(Some(Box::new(move |_n| {
+                let s = &mut *stream_ptr.as_ptr();
 
                 while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
                     let samples =
@@ -164,6 +169,82 @@ impl PulseManager {
                 }
             })));
 
+            (*stream_ptr.as_ptr()).connect_record(
+                Some(&format!("{}.monitor", sink_name)),
+                Some(&buffer_attr),
+                StreamFlagSet::ADJUST_LATENCY,
+            )?;
+        }
+
+        self.mainloop.unlock();
+        Ok(stream_ptr)
+    }
+
+    pub fn start_capture(
+        &mut self,
+        sink_name: &str,
+        config: StreamConfig,
+    ) -> Result<(CaptureSession, mpsc::Receiver<PcmFrame>), Box<dyn std::error::Error>> {
+        let spec = pulse::sample::Spec {
+            format: Format::S16le,
+            rate: config.sample_rate,
+            channels: config.channels,
+        };
+
+        let frame_samples = config.frame_size * config.channels as usize;
+        let frag_bytes = (frame_samples * 2) as u32;
+
+        let buffer_attr = BufferAttr {
+            maxlength: u32::MAX,
+            tlength: u32::MAX,
+            prebuf: u32::MAX,
+            minreq: u32::MAX,
+            fragsize: frag_bytes,
+        };
+
+        let (tx, rx) = mpsc::channel(config.pcm_queue_depth);
+        let tx = tx.clone();
+
+        self.mainloop.lock();
+
+        let stream = Stream::new(&mut self.context, "capture", &spec, None)
+            .ok_or("Capture stream creation failed")?;
+        let capture = CaptureSession::new(stream);
+        let stream_ptr = capture.as_ptr();
+        let mut pending: Vec<i16> = Vec::with_capacity(frame_samples * 4);
+
+        unsafe {
+            (*stream_ptr).set_read_callback(Some(Box::new(move |_n| {
+                let s = &mut *stream_ptr;
+
+                while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
+                    let samples =
+                        std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2);
+                    pending.extend_from_slice(samples);
+                    let _ = s.discard();
+
+                    while pending.len() >= frame_samples {
+                        let frame_samples_vec = pending.drain(0..frame_samples).collect::<Vec<_>>();
+                        let timestamp_ms = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let frame = PcmFrame {
+                            timestamp_ms,
+                            samples: frame_samples_vec,
+                        };
+
+                        match tx.try_send(frame) {
+                            Ok(_) => {}
+                            Err(TrySendError::Full(_)) => {
+                                // Drop frame when backpressure is high.
+                            }
+                            Err(TrySendError::Closed(_)) => return,
+                        }
+                    }
+                }
+            })));
+
             (*stream_ptr).connect_record(
                 Some(&format!("{}.monitor", sink_name)),
                 Some(&buffer_attr),
@@ -172,18 +253,33 @@ impl PulseManager {
         }
 
         self.mainloop.unlock();
-        Ok(())
+        Ok((capture, rx))
     }
 
-    /// Read-only snapshot for UI layers
-    pub fn get_levels(&self) -> Vec<SinkLevel> {
-        self.meters
-            .iter()
-            .map(|m| SinkLevel {
-                name: m.name.clone(),
-                peak: f32::from_bits(m.peak.load(Ordering::Relaxed)),
-            })
-            .collect()
+    pub fn stop_capture(&mut self, capture: CaptureSession) {
+        if let Some(stream) = capture.take_stream() {
+            self.mainloop.lock();
+            unsafe {
+                let stream = stream.as_ptr();
+                let mut boxed = Box::from_raw(stream);
+                boxed.disconnect().ok();
+            }
+            self.mainloop.unlock();
+        }
+    }
+
+    fn cleanup_meters(&mut self) {
+        self.mainloop.lock();
+        for meter in &mut self.meters {
+            if let Some(stream) = meter.stream.take() {
+                unsafe {
+                    let stream = stream.as_ptr();
+                    let mut boxed = Box::from_raw(stream);
+                    boxed.disconnect().ok();
+                }
+            }
+        }
+        self.mainloop.unlock();
     }
 
     pub fn export_meters(&self) -> Vec<(String, Arc<AtomicU32>)> {
@@ -194,8 +290,21 @@ impl PulseManager {
     }
 }
 
+impl Drop for SinkMeter {
+    fn drop(&mut self) {
+        if let Some(stream) = self.stream.take() {
+            unsafe {
+                let stream = stream.as_ptr();
+                let mut boxed = Box::from_raw(stream);
+                boxed.disconnect().ok();
+            }
+        }
+    }
+}
+
 impl Drop for PulseManager {
     fn drop(&mut self) {
+        self.cleanup_meters();
         self.mainloop.lock();
         self.context.disconnect();
         self.mainloop.unlock();
