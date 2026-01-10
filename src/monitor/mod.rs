@@ -1,10 +1,9 @@
 use crate::control::messages::{MAGIC, MSG_HELLO, MSG_KEEPALIVE, StreamConfig, VERSION};
-use hound::WavWriter;
 use opus::{Channels, Decoder};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
@@ -42,22 +41,18 @@ impl MonitorManager {
         }
     }
 
-    pub async fn start(&self, sink: String) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), String> {
         let mut state = self.state.lock().await;
         if state.active {
             return Err("Monitor already running".to_string());
         }
-
-        let recording_path = build_recording_path(&sink).map_err(|err| err.to_string())?;
-        let writer = WavWriter::create(&recording_path, wav_spec(self.config))
-            .map_err(|err| err.to_string())?;
 
         let (stop_tx, mut stop_rx) = oneshot::channel();
         let peak = Arc::clone(&self.peak);
         let config = self.config;
 
         let task = tokio::spawn(async move {
-            run_monitor(config, peak, writer, &mut stop_rx).await;
+            run_monitor(config, peak, &mut stop_rx).await;
         });
 
         state.active = true;
@@ -97,7 +92,6 @@ impl MonitorManager {
 async fn run_monitor(
     config: StreamConfig,
     peak: Arc<AtomicU32>,
-    mut writer: WavWriter<std::io::BufWriter<std::fs::File>>,
     stop_rx: &mut oneshot::Receiver<()>,
 ) {
     let socket = match UdpSocket::bind("127.0.0.1:0").await {
@@ -154,14 +148,11 @@ async fn run_monitor(
                     if value > max {
                         max = value;
                     }
-                    let _ = writer.write_sample(sample);
                 }
                 peak.store(max.to_bits(), Ordering::Relaxed);
             }
         }
     }
-
-    let _ = writer.finalize();
 }
 
 fn build_control_packet(msg_type: u8) -> Vec<u8> {
@@ -170,28 +161,4 @@ fn build_control_packet(msg_type: u8) -> Vec<u8> {
     buf.push(VERSION);
     buf.push(msg_type);
     buf
-}
-
-fn wav_spec(config: StreamConfig) -> hound::WavSpec {
-    hound::WavSpec {
-        channels: config.channels as u16,
-        sample_rate: config.sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    }
-}
-
-fn build_recording_path(sink: &str) -> Result<std::path::PathBuf, std::io::Error> {
-    let mut dir = std::path::PathBuf::from("recordings");
-    std::fs::create_dir_all(&dir)?;
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let sanitized = sink
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect::<String>();
-    dir.push(format!("{}_{}.wav", sanitized, timestamp));
-    Ok(dir)
 }

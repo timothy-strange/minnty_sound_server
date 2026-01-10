@@ -98,7 +98,13 @@ impl StreamManager {
         self.audio.stop_capture().await?;
 
         if let Some(task) = state.task.take() {
-            let _ = task.await;
+            let mut task = task;
+            match tokio::time::timeout(std::time::Duration::from_secs(2), &mut task).await {
+                Ok(_) => {}
+                Err(_) => {
+                    task.abort();
+                }
+            }
         }
 
         state.running = false;

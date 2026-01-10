@@ -139,14 +139,14 @@ async fn start_monitor(
     State(state): State<AppState>,
 ) -> Result<(StatusCode, Json<MonitorResponse>), (StatusCode, Json<ErrorResponse>)> {
     let stream_status = state.stream.status().await;
-    let Some(sink) = stream_status.sink else {
+    if stream_status.sink.is_none() {
         return Err(error_response(
             StatusCode::BAD_REQUEST,
             "Stream is not running".to_string(),
         ));
-    };
+    }
 
-    match state.monitor.start(sink).await {
+    match state.monitor.start().await {
         Ok(()) => {
             let status = state.monitor.status().await;
             Ok((StatusCode::OK, Json(to_monitor_response(status))))

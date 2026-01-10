@@ -6,7 +6,7 @@ use pulse::def::BufferAttr;
 use pulse::mainloop::threaded::Mainloop;
 use pulse::sample::Format;
 use pulse::stream::{FlagSet as StreamFlagSet, Stream};
-use std::ptr::NonNull;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -16,7 +16,7 @@ use tokio::sync::mpsc::error::TrySendError;
 struct SinkMeter {
     name: String,
     peak: Arc<AtomicU32>,
-    stream: Option<NonNull<Stream>>,
+    stream: Option<Box<Stream>>,
 }
 
 pub struct PulseManager {
@@ -125,7 +125,7 @@ impl PulseManager {
         &mut self,
         sink_name: &str,
         peak: Arc<AtomicU32>,
-    ) -> Result<NonNull<Stream>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<Stream>, Box<dyn std::error::Error>> {
         let spec = pulse::sample::Spec {
             format: Format::S16le,
             rate: 44100,
@@ -142,15 +142,14 @@ impl PulseManager {
 
         self.mainloop.lock();
 
-        let stream =
-            Stream::new(&mut self.context, "meter", &spec, None).ok_or("Stream creation failed")?;
-
-        let stream_ptr = NonNull::new(Box::into_raw(Box::new(stream)))
-            .ok_or("Stream pointer allocation failed")?;
+        let mut stream = Box::new(
+            Stream::new(&mut self.context, "meter", &spec, None).ok_or("Stream creation failed")?,
+        );
+        let stream_ptr: *mut Stream = &mut *stream;
 
         unsafe {
-            (*stream_ptr.as_ptr()).set_read_callback(Some(Box::new(move |_n| {
-                let s = &mut *stream_ptr.as_ptr();
+            (*stream_ptr).set_read_callback(Some(Box::new(move |_n| {
+                let s = &mut *stream_ptr;
 
                 while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
                     let samples =
@@ -169,7 +168,7 @@ impl PulseManager {
                 }
             })));
 
-            (*stream_ptr.as_ptr()).connect_record(
+            (*stream_ptr).connect_record(
                 Some(&format!("{}.monitor", sink_name)),
                 Some(&buffer_attr),
                 StreamFlagSet::ADJUST_LATENCY,
@@ -177,7 +176,7 @@ impl PulseManager {
         }
 
         self.mainloop.unlock();
-        Ok(stream_ptr)
+        Ok(stream)
     }
 
     pub fn start_capture(
@@ -211,7 +210,8 @@ impl PulseManager {
             .ok_or("Capture stream creation failed")?;
         let capture = CaptureSession::new(stream);
         let stream_ptr = capture.as_ptr();
-        let mut pending: Vec<i16> = Vec::with_capacity(frame_samples * 4);
+        let mut pending: VecDeque<i16> = VecDeque::with_capacity(frame_samples * 4);
+        let max_pending = frame_samples * 8;
 
         unsafe {
             (*stream_ptr).set_read_callback(Some(Box::new(move |_n| {
@@ -220,11 +220,21 @@ impl PulseManager {
                 while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
                     let samples =
                         std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2);
-                    pending.extend_from_slice(samples);
+                    for &sample in samples {
+                        if pending.len() == max_pending {
+                            let _ = pending.pop_front();
+                        }
+                        pending.push_back(sample);
+                    }
                     let _ = s.discard();
 
                     while pending.len() >= frame_samples {
-                        let frame_samples_vec = pending.drain(0..frame_samples).collect::<Vec<_>>();
+                        let mut frame_samples_vec = Vec::with_capacity(frame_samples);
+                        for _ in 0..frame_samples {
+                            if let Some(sample) = pending.pop_front() {
+                                frame_samples_vec.push(sample);
+                            }
+                        }
                         let timestamp_ms = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
@@ -256,27 +266,17 @@ impl PulseManager {
         Ok((capture, rx))
     }
 
-    pub fn stop_capture(&mut self, capture: CaptureSession) {
-        if let Some(stream) = capture.take_stream() {
-            self.mainloop.lock();
-            unsafe {
-                let stream = stream.as_ptr();
-                let mut boxed = Box::from_raw(stream);
-                boxed.disconnect().ok();
-            }
-            self.mainloop.unlock();
-        }
+    pub fn stop_capture(&mut self, mut capture: CaptureSession) {
+        self.mainloop.lock();
+        capture.disconnect();
+        self.mainloop.unlock();
     }
 
     fn cleanup_meters(&mut self) {
         self.mainloop.lock();
         for meter in &mut self.meters {
-            if let Some(stream) = meter.stream.take() {
-                unsafe {
-                    let stream = stream.as_ptr();
-                    let mut boxed = Box::from_raw(stream);
-                    boxed.disconnect().ok();
-                }
+            if let Some(stream) = meter.stream.as_mut() {
+                stream.disconnect().ok();
             }
         }
         self.mainloop.unlock();
@@ -292,12 +292,8 @@ impl PulseManager {
 
 impl Drop for SinkMeter {
     fn drop(&mut self) {
-        if let Some(stream) = self.stream.take() {
-            unsafe {
-                let stream = stream.as_ptr();
-                let mut boxed = Box::from_raw(stream);
-                boxed.disconnect().ok();
-            }
+        if let Some(stream) = self.stream.as_mut() {
+            stream.disconnect().ok();
         }
     }
 }

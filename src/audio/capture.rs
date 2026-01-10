@@ -1,5 +1,4 @@
 use libpulse_binding::stream::Stream;
-use std::ptr::NonNull;
 
 #[derive(Debug)]
 pub struct PcmFrame {
@@ -8,35 +7,34 @@ pub struct PcmFrame {
 }
 
 pub struct CaptureSession {
-    stream: Option<NonNull<Stream>>,
+    stream: Option<Box<Stream>>,
 }
 
 impl CaptureSession {
     pub(crate) fn new(stream: Stream) -> Self {
-        let stream = Box::into_raw(Box::new(stream));
-        let stream = unsafe { NonNull::new_unchecked(stream) };
         Self {
-            stream: Some(stream),
+            stream: Some(Box::new(stream)),
         }
     }
 
     pub(crate) fn as_ptr(&self) -> *mut Stream {
-        self.stream.expect("capture stream missing").as_ptr()
+        self.stream
+            .as_ref()
+            .map(|stream| &**stream as *const Stream as *mut Stream)
+            .expect("capture stream missing")
     }
 
-    pub(crate) fn take_stream(mut self) -> Option<NonNull<Stream>> {
-        self.stream.take()
+    pub(crate) fn disconnect(&mut self) {
+        if let Some(stream) = self.stream.as_mut() {
+            stream.disconnect().ok();
+        }
     }
 }
 
 impl Drop for CaptureSession {
     fn drop(&mut self) {
-        if let Some(stream) = self.stream.take() {
-            unsafe {
-                let stream = stream.as_ptr();
-                let mut boxed = Box::from_raw(stream);
-                boxed.disconnect().ok();
-            }
+        if let Some(stream) = self.stream.as_mut() {
+            stream.disconnect().ok();
         }
     }
 }
