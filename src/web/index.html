@@ -21,10 +21,15 @@
     body {
       margin: 0;
       padding: 20px;
+      box-sizing: border-box;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
       background: var(--bg);
       color: var(--fg);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     }
+
 
     /* Prevent selection/caret behaviors */
     body, .sink, .name, .value, button {
@@ -35,10 +40,36 @@
     }
 
     h1 {
-      margin-bottom: 24px;
+      margin: 0 0 6px;
       font-size: 22px;
       font-weight: 600;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--fg);
+      font-size: 18px;
       text-align: center;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .header-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .hint-row {
+      display: flex;
+      justify-content: center;
+      margin-top: 12px;
+      margin-bottom: 50px;
     }
 
     .sink {
@@ -99,11 +130,29 @@
     }
 
     .actions {
-      margin-top: 24px;
       display: flex;
       justify-content: center;
       gap: 12px;
       flex-wrap: wrap;
+    }
+
+    .layout {
+      flex: 1;
+      min-height: calc(100vh - 40px);
+      display: flex;
+      flex-direction: column;
+      gap: 50px;
+    }
+
+    .row {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .danger {
+      background: #ef4444;
+      color: #1f0a0a;
     }
 
     button {
@@ -129,20 +178,35 @@
 </head>
 
 <body>
-  <h1>Minnty Sound Server</h1>
-
-  <div id="sinks"></div>
-
-  <div class="actions">
-    <button id="startBtn" disabled>Start Streaming</button>
-    <button id="monitorBtn" disabled>Monitor Stream</button>
-    <button id="shutdownBtn">Shutdown Server</button>
+  <div class="topbar">
+    <div class="header-text">
+      <h1>Minnty Sound Server</h1>
+    </div>
+    <button id="shutdownBtn" class="danger">Exit</button>
   </div>
 
-  <div id="monitorRow" class="sink">
-    <div class="name">Monitor Level</div>
-    <div class="meter"><div class="fill" id="monitorFill"></div></div>
-    <div class="value" id="monitorValue">0.00</div>
+  <div class="hint-row">
+    <p class="hint">Select output then click "Start Server"</p>
+  </div>
+
+  <div class="layout">
+    <div class="row" id="outputsRow">
+      <div id="sinks"></div>
+      <div class="actions">
+        <button id="startBtn" disabled>Start Server</button>
+      </div>
+    </div>
+
+    <div class="row" id="monitorRow">
+      <div class="sink">
+        <div class="name">Monitor Level</div>
+        <div class="meter"><div class="fill" id="monitorFill"></div></div>
+        <div class="value" id="monitorValue">0.00</div>
+      </div>
+      <div class="actions">
+        <button id="monitorBtn" disabled>Monitor Stream</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -167,12 +231,12 @@
 
     function updateStartButton() {
       if (isStreaming) {
-        startBtn.textContent = "Stop Streaming";
+        startBtn.textContent = "Stop Server";
         startBtn.disabled = false;
         return;
       }
 
-      startBtn.textContent = "Start Streaming";
+      startBtn.textContent = "Start Server";
       startBtn.disabled = !selectedSink;
     }
 
@@ -312,9 +376,8 @@
         isStreaming = !!data.running;
         if (data.sink) {
           selectSink(data.sink);
-        } else {
-          updateStartButton();
         }
+        updateStartButton();
         if (!isStreaming) {
           isMonitoring = false;
         }
@@ -361,17 +424,18 @@
 
     shutdownBtn.addEventListener("click", async () => {
       await fetch("/api/shutdown", { method: "POST" });
-      startBtn.disabled = true;
-      monitorBtn.disabled = true;
-      shutdownBtn.disabled = true;
+      document.body.innerHTML = "<div style=\"min-height:100vh;display:flex;align-items:center;justify-content:center;\"><h1>Server has shut down.</h1></div>";
+      clearInterval(levelsTimer);
+      clearInterval(statusTimer);
+      clearInterval(monitorTimer);
     });
 
     // Ensure reload starts with no selection and disabled button.
     resetSelection();
 
-    setInterval(update, 50);
-    setInterval(refreshStatus, 1000);
-    setInterval(refreshMonitor, 100);
+    const levelsTimer = setInterval(update, 50);
+    const statusTimer = setInterval(refreshStatus, 1000);
+    const monitorTimer = setInterval(refreshMonitor, 100);
     update();
     refreshStatus();
     refreshMonitor();
