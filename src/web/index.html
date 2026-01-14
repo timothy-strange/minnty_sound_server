@@ -45,18 +45,28 @@
       font-weight: 600;
     }
 
+    .title {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      margin: 0;
+    }
+
     .hint {
       margin: 0;
       color: var(--fg);
       font-size: 18px;
       text-align: center;
+      display: block;
     }
 
     .topbar {
+      position: relative;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: flex-start;
       gap: 20px;
+      min-height: 32px;
     }
 
     .header-text {
@@ -67,7 +77,9 @@
 
     .hint-row {
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
       margin-top: 12px;
       margin-bottom: 50px;
     }
@@ -179,14 +191,13 @@
 
 <body>
   <div class="topbar">
-    <div class="header-text">
-      <h1>Minnty Sound Server</h1>
-    </div>
-    <button id="shutdownBtn" class="danger">Exit</button>
+    <h1 class="title">Minnty Sound Server</h1>
+    <button id="shutdownBtn" class="danger">Quit</button>
   </div>
 
   <div class="hint-row">
-    <p class="hint">Select output then click "Start Server"</p>
+    <p class="hint">Select an output from this list, then click "Start Server".</p>
+    <p class="hint">(Play some audio to see which outputs are active).</p>
   </div>
 
   <div class="layout">
@@ -424,7 +435,7 @@
 
     shutdownBtn.addEventListener("click", async () => {
       await fetch("/api/shutdown", { method: "POST" });
-      document.body.innerHTML = "<div style=\"min-height:100vh;display:flex;align-items:center;justify-content:center;\"><h1>Server has shut down.</h1></div>";
+      document.body.innerHTML = "<div style=\"min-height:100vh;display:flex;align-items:center;justify-content:center;\"><h1>Minnty Sound Server has shut down.</h1></div>";
       clearInterval(levelsTimer);
       clearInterval(statusTimer);
       clearInterval(monitorTimer);
