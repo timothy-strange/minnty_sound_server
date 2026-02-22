@@ -1,56 +1,13 @@
 use libpulse_binding::mainloop::threaded::Mainloop;
 use libpulse_binding::stream::Stream;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 #[derive(Debug)]
 pub struct PcmFrame {
     pub timestamp_ms: u64,
     pub samples: Vec<i16>,
-}
-
-pub struct RingBuffer {
-    data: Vec<i16>,
-    capacity: usize,
-    read: usize,
-    write: usize,
-    len: usize,
-}
-
-impl RingBuffer {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            data: vec![0; capacity],
-            capacity,
-            read: 0,
-            write: 0,
-            len: 0,
-        }
-    }
-
-    pub fn push_samples(&mut self, samples: &[i16]) {
-        for &sample in samples {
-            if self.len == self.capacity {
-                self.read = (self.read + 1) % self.capacity;
-                self.len -= 1;
-            }
-            self.data[self.write] = sample;
-            self.write = (self.write + 1) % self.capacity;
-            self.len += 1;
-        }
-    }
-
-    pub fn pop_frame(&mut self, frame_size: usize) -> Option<Vec<i16>> {
-        if self.len < frame_size {
-            return None;
-        }
-
-        let mut frame = Vec::with_capacity(frame_size);
-        for _ in 0..frame_size {
-            frame.push(self.data[self.read]);
-            self.read = (self.read + 1) % self.capacity;
-            self.len -= 1;
-        }
-        Some(frame)
-    }
 }
 
 pub struct PulseStreamHandle {
@@ -95,14 +52,28 @@ impl Drop for PulseStreamHandle {
 
 pub struct CaptureSession {
     handle: PulseStreamHandle,
+    stop_flag: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl CaptureSession {
-    pub(crate) fn new(handle: PulseStreamHandle) -> Self {
-        Self { handle }
+    pub(crate) fn new(
+        handle: PulseStreamHandle,
+        stop_flag: Arc<AtomicBool>,
+        worker: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            handle,
+            stop_flag,
+            worker: Some(worker),
+        }
     }
 
     pub(crate) fn shutdown(&mut self) {
+        self.stop_flag.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
         self.handle.shutdown();
     }
 }

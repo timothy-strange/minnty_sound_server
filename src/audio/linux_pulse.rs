@@ -1,4 +1,4 @@
-use crate::audio::capture::{CaptureSession, PcmFrame, PulseStreamHandle, RingBuffer};
+use crate::audio::capture::{CaptureSession, PcmFrame, PulseStreamHandle};
 use crate::control::messages::StreamConfig;
 use libpulse_binding as pulse;
 use pulse::context::{Context, FlagSet, State};
@@ -6,8 +6,9 @@ use pulse::def::BufferAttr;
 use pulse::mainloop::threaded::Mainloop;
 use pulse::sample::Format;
 use pulse::stream::{FlagSet as StreamFlagSet, Stream};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -22,6 +23,7 @@ pub struct PulseManager {
     mainloop: Mainloop,
     context: Context,
     meters: Vec<SinkMeter>,
+    meters_running: bool,
 }
 
 impl PulseManager {
@@ -40,6 +42,7 @@ impl PulseManager {
             mainloop,
             context,
             meters: Vec::new(),
+            meters_running: false,
         };
 
         manager.wait_for_ready()?;
@@ -71,6 +74,21 @@ impl PulseManager {
     }
 
     pub fn start_meters(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.meters_running {
+            return Ok(());
+        }
+
+        if !self.meters.is_empty() {
+            for idx in 0..self.meters.len() {
+                let name = self.meters[idx].name.clone();
+                let peak = Arc::clone(&self.meters[idx].peak);
+                let stream = self.start_sink_monitor(&name, peak)?;
+                self.meters[idx].stream = Some(stream);
+            }
+            self.meters_running = true;
+            return Ok(());
+        }
+
         use pulse::callbacks::ListResult;
 
         enum Msg {
@@ -115,7 +133,29 @@ impl PulseManager {
             }
         }
 
+        self.meters_running = true;
         Ok(())
+    }
+
+    pub fn stop_meters(&mut self) {
+        if !self.meters_running {
+            return;
+        }
+
+        for meter in &mut self.meters {
+            if let Some(mut handle) = meter.stream.take() {
+                handle.shutdown();
+            }
+        }
+
+        self.meters_running = false;
+    }
+
+    pub fn start_meters_if_stopped(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.meters_running {
+            return Ok(());
+        }
+        self.start_meters()
     }
 
     fn start_sink_monitor(
@@ -199,7 +239,139 @@ impl PulseManager {
         };
 
         let (tx, rx) = mpsc::channel(config.pcm_queue_depth);
-        let tx = tx.clone();
+        let ring_capacity = frame_samples
+            .saturating_mul(config.pcm_queue_depth)
+            .saturating_mul(2)
+            .max(frame_samples);
+        let (mut producer, mut consumer) = rtrb::RingBuffer::<i16>::new(ring_capacity);
+
+        let ring_drop_newest = Arc::new(AtomicU64::new(0));
+        let ring_drop_newest_cb = Arc::clone(&ring_drop_newest);
+        let callback_gap_max_ms = Arc::new(AtomicU64::new(0));
+        let callback_gap_max_ms_cb = Arc::clone(&callback_gap_max_ms);
+        let callback_gap_over_200 = Arc::new(AtomicU64::new(0));
+        let callback_gap_over_200_cb = Arc::clone(&callback_gap_over_200);
+        let pending_sample_count = Arc::new(AtomicUsize::new(0));
+        let pending_sample_count_cb = Arc::clone(&pending_sample_count);
+        let ring_backlog_warn_threshold = frame_samples.saturating_mul(config.pcm_queue_depth);
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_worker = Arc::clone(&stop_flag);
+        let capture_start = Instant::now();
+        let base_wallclock_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let worker = std::thread::spawn(move || {
+            const MAX_WORKER_FRAMES_PER_CYCLE: usize = 3;
+            let max_samples_per_cycle = frame_samples * MAX_WORKER_FRAMES_PER_CYCLE;
+            let mut pending_samples: Vec<i16> = Vec::with_capacity(max_samples_per_cycle * 2);
+            let mut emitted_window = 0u64;
+            let mut dropped_full_window = 0u64;
+            let mut backlog_max_window = 0usize;
+            let mut last_summary = Instant::now();
+
+            loop {
+                let mut pulled = 0usize;
+                while pulled < max_samples_per_cycle {
+                    match consumer.pop() {
+                        Ok(sample) => {
+                            let _ = pending_sample_count.fetch_update(
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                                |n| Some(n.saturating_sub(1)),
+                            );
+                            pending_samples.push(sample);
+                            pulled += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                let raw_backlog = pending_sample_count.load(Ordering::Relaxed);
+                let backlog = if raw_backlog > ring_capacity {
+                    pending_sample_count.store(0, Ordering::Relaxed);
+                    0
+                } else {
+                    raw_backlog
+                };
+                if backlog > backlog_max_window {
+                    backlog_max_window = backlog;
+                }
+
+                let mut emitted = 0usize;
+                while pending_samples.len() >= frame_samples
+                    && emitted < MAX_WORKER_FRAMES_PER_CYCLE
+                {
+                    let frame_samples_vec: Vec<i16> =
+                        pending_samples.drain(..frame_samples).collect();
+                    let timestamp_ms =
+                        base_wallclock_ms + capture_start.elapsed().as_millis() as u64;
+                    let frame = PcmFrame {
+                        timestamp_ms,
+                        samples: frame_samples_vec,
+                    };
+
+                    match tx.try_send(frame) {
+                        Ok(_) => {
+                            emitted += 1;
+                            emitted_window += 1;
+                        }
+                        Err(TrySendError::Full(_)) => {
+                            dropped_full_window += 1;
+                        }
+                        Err(TrySendError::Closed(_)) => return,
+                    }
+                }
+
+                let now = Instant::now();
+                if now.duration_since(last_summary) >= Duration::from_secs(2) {
+                    let ring_drop_newest_window = ring_drop_newest.swap(0, Ordering::Relaxed);
+                    let callback_gap_max_window = callback_gap_max_ms.swap(0, Ordering::Relaxed);
+                    let callback_gap_over_200_window =
+                        callback_gap_over_200.swap(0, Ordering::Relaxed);
+
+                    println!(
+                        "capture diag: emitted={} droppedFull={} ringDroppedNewest={} callbackGapMaxMs={} callbackGapOver200={} framesLeftInRingMax={}",
+                        emitted_window,
+                        dropped_full_window,
+                        ring_drop_newest_window,
+                        callback_gap_max_window,
+                        callback_gap_over_200_window,
+                        backlog_max_window
+                    );
+
+                    if callback_gap_max_window > 200 {
+                        eprintln!(
+                            "capture warning: callback gap {} ms",
+                            callback_gap_max_window
+                        );
+                    }
+                    if backlog_max_window > ring_backlog_warn_threshold {
+                        eprintln!(
+                            "capture warning: ring backlog high {} samples (threshold {})",
+                            backlog_max_window, ring_backlog_warn_threshold
+                        );
+                    }
+
+                    emitted_window = 0;
+                    dropped_full_window = 0;
+                    backlog_max_window = 0;
+                    last_summary = now;
+                }
+
+                if stop_flag_worker.load(std::sync::atomic::Ordering::Acquire)
+                    && pending_samples.len() < frame_samples
+                {
+                    break;
+                }
+
+                if pulled == 0 && emitted == 0 {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        });
 
         self.mainloop.lock();
 
@@ -207,35 +379,33 @@ impl PulseManager {
             .ok_or("Capture stream creation failed")?;
         let mut handle = PulseStreamHandle::new(stream, &self.mainloop);
         let stream_ptr = handle.as_ptr();
-        let mut ring = RingBuffer::new(frame_samples * 16);
+        let mut last_callback_at: Option<Instant> = None;
 
         unsafe {
             (*stream_ptr).set_read_callback(Some(Box::new(move |_n| {
                 let s = &mut *stream_ptr;
+                let callback_now = Instant::now();
+                if let Some(last) = last_callback_at {
+                    let gap_ms = callback_now.duration_since(last).as_millis() as u64;
+                    callback_gap_max_ms_cb.fetch_max(gap_ms, Ordering::Relaxed);
+                    if gap_ms > 200 {
+                        callback_gap_over_200_cb.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                last_callback_at = Some(callback_now);
 
                 while let Ok(pulse::stream::PeekResult::Data(data)) = s.peek() {
                     let samples =
                         std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2);
-                    ring.push_samples(samples);
-                    let _ = s.discard();
-
-                    while let Some(frame_samples_vec) = ring.pop_frame(frame_samples) {
-                        let timestamp_ms = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        let frame = PcmFrame {
-                            timestamp_ms,
-                            samples: frame_samples_vec,
-                        };
-
-                        match tx.try_send(frame) {
-                            Ok(_) => {}
-                            Err(TrySendError::Full(_)) => {
-                            }
-                            Err(TrySendError::Closed(_)) => return,
+                    for &sample in samples {
+                        if producer.push(sample).is_err() {
+                            // Drop-newest policy when bounded SPSC buffer is full.
+                            ring_drop_newest_cb.fetch_add(1, Ordering::Relaxed);
+                        } else {
+                            pending_sample_count_cb.fetch_add(1, Ordering::Relaxed);
                         }
                     }
+                    let _ = s.discard();
                 }
             })));
 
@@ -247,7 +417,7 @@ impl PulseManager {
         }
 
         self.mainloop.unlock();
-        Ok((CaptureSession::new(handle), rx))
+        Ok((CaptureSession::new(handle, stop_flag, worker), rx))
     }
 
     pub fn stop_capture(&mut self, mut capture: CaptureSession) {
@@ -256,10 +426,11 @@ impl PulseManager {
 
     fn cleanup_meters(&mut self) {
         for meter in &mut self.meters {
-            if let Some(handle) = meter.stream.as_mut() {
+            if let Some(mut handle) = meter.stream.take() {
                 handle.shutdown();
             }
         }
+        self.meters_running = false;
     }
 
     pub fn export_meters(&self) -> Vec<(String, Arc<AtomicU32>)> {

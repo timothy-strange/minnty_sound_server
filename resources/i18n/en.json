@@ -1,0 +1,46 @@
+{
+  "launcher": {
+    "tooltip": "Minnty Sound Server",
+    "menu": {
+      "heading": "Minnty Sound Server",
+      "show_ui": "Show UI",
+      "quit": "Quit"
+    }
+  },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": {
+      "start_server": "Start Server",
+      "stop_server": "Stop Server",
+      "help": "Help"
+    },
+    "labels": {
+      "streaming": "Streaming"
+    },
+    "outputs": {
+      "title": "Audio Outputs",
+      "subtitle": "Select an output to stream"
+    },
+    "tab": {
+      "deactivated_title": "Deactivated",
+      "deactivated_body_tab_takeover": "This tab was deactivated because Minnty UI is active in another tab.",
+      "deactivated_body_process_exited": "This tab was deactivated because the Minnty process has exited."
+    },
+    "status": {
+      "offline_title": "Minnty is not running.",
+      "offline_body": "Relaunch Minnty from the launcher icon."
+    },
+    "help": {
+      "title": "Instructions",
+      "close": "Close",
+      "lines": [
+        "You should see your audio outputs listed in the browser UI. Play some audio to see which output is active (the active level meter will move).",
+        "To stream, select the active output, then click the \"Start Server\" button.",
+        "While streaming, the button will change to \"Stop Server\", and the level meters will be disabled.",
+        "To stop streaming, click the \"Stop Server\" button. It will toggle back to \"Start Server\".",
+        "To quit the app completely, select \"Quit\" from the system tray menu (the browser UI will deactivate if it's still open).",
+        "You can close the browser UI at any time and reopen it by selecting \"Show UI\" from the system tray menu."
+      ]
+    }
+  }
+}

@@ -5,8 +5,10 @@ use crate::encode::opus::OpusEncoder;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{Mutex, oneshot, watch};
+use std::time::Duration;
+use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 #[derive(Deserialize)]
 pub struct StartStreamRequest {
@@ -25,7 +27,6 @@ pub struct StreamManager {
     udp: Arc<UdpServer>,
     config: StreamConfig,
     state: Mutex<StreamRuntime>,
-    shutdown_tx: watch::Sender<bool>,
 }
 
 struct StreamRuntime {
@@ -40,7 +41,6 @@ impl StreamManager {
         audio: Arc<dyn AudioSource>,
         udp: Arc<UdpServer>,
         config: StreamConfig,
-        shutdown_tx: watch::Sender<bool>,
     ) -> Self {
         Self {
             audio,
@@ -52,7 +52,6 @@ impl StreamManager {
                 stop_tx: None,
                 task: None,
             }),
-            shutdown_tx,
         }
     }
 
@@ -72,9 +71,12 @@ impl StreamManager {
         };
         let udp = Arc::clone(&self.udp);
         let (stop_tx, mut stop_rx) = oneshot::channel();
+        let frame_duration = Duration::from_secs_f64(
+            self.config.frame_size as f64 / self.config.sample_rate as f64,
+        );
 
         let task = tokio::spawn(async move {
-            stream_loop(&mut encoder, receiver, udp, &mut stop_rx).await;
+            stream_loop(&mut encoder, receiver, udp, &mut stop_rx, frame_duration).await;
         });
 
         state.running = true;
@@ -86,18 +88,22 @@ impl StreamManager {
     }
 
     pub async fn stop(&self) -> Result<(), String> {
-        let mut state = self.state.lock().await;
-        if !state.running {
-            return Ok(());
-        }
+        let task = {
+            let mut state = self.state.lock().await;
+            if !state.running {
+                return Ok(());
+            }
 
-        if let Some(stop_tx) = state.stop_tx.take() {
-            let _ = stop_tx.send(());
-        }
+            if let Some(stop_tx) = state.stop_tx.take() {
+                let _ = stop_tx.send(());
+            }
 
-        self.audio.stop_capture().await?;
+            state.running = false;
+            state.sink = None;
+            state.task.take()
+        };
 
-        if let Some(task) = state.task.take() {
+        if let Some(task) = task {
             let mut task = task;
             match tokio::time::timeout(std::time::Duration::from_secs(2), &mut task).await {
                 Ok(_) => {}
@@ -107,8 +113,7 @@ impl StreamManager {
             }
         }
 
-        state.running = false;
-        state.sink = None;
+        self.audio.stop_capture().await?;
 
         Ok(())
     }
@@ -121,10 +126,6 @@ impl StreamManager {
             udp_port: self.config.udp_port,
         }
     }
-
-    pub fn shutdown(&self) {
-        let _ = self.shutdown_tx.send(true);
-    }
 }
 
 async fn stream_loop(
@@ -132,19 +133,83 @@ async fn stream_loop(
     mut receiver: tokio::sync::mpsc::Receiver<PcmFrame>,
     udp: Arc<UdpServer>,
     stop_rx: &mut oneshot::Receiver<()>,
+    frame_duration: Duration,
 ) {
     let mut seq = 0u32;
+    let mut next_send_at = Instant::now();
+    let mut last_send_at: Option<Instant> = None;
+
+    let mut sent_window = 0u64;
+    let mut gap_over_200_window = 0u64;
+    let mut burst_after_gap_window = 0u64;
+    let mut send_delta_max_ms = 0.0f64;
+    let mut pacer_late_max_ms = 0.0f64;
+    let mut last_interval_was_gap = false;
+    let mut summary_interval = tokio::time::interval(Duration::from_secs(2));
 
     loop {
         tokio::select! {
             _ = &mut *stop_rx => {
                 break;
             }
+            _ = summary_interval.tick() => {
+                println!(
+                    "stream diag: sent={} gapOver200={} burstAfterGap={} sendDeltaMaxMs={:.2} pacerLateMsMax={:.2}",
+                    sent_window,
+                    gap_over_200_window,
+                    burst_after_gap_window,
+                    send_delta_max_ms,
+                    pacer_late_max_ms
+                );
+                sent_window = 0;
+                gap_over_200_window = 0;
+                burst_after_gap_window = 0;
+                send_delta_max_ms = 0.0;
+                pacer_late_max_ms = 0.0;
+            }
             frame = receiver.recv() => {
                 let Some(frame) = frame else { break; };
+
+                let now = Instant::now();
+                if now < next_send_at {
+                    tokio::time::sleep_until(next_send_at).await;
+                } else {
+                    let late_ms = now.duration_since(next_send_at).as_secs_f64() * 1000.0;
+                    if late_ms > pacer_late_max_ms {
+                        pacer_late_max_ms = late_ms;
+                    }
+                }
+
                 let Ok(opus) = encoder.encode_frame(&frame.samples) else { continue; };
                 let packet = build_stream_packet(seq, frame.timestamp_ms, &opus);
                 udp.send_to_clients(&packet).await;
+
+                let sent_at = Instant::now();
+                if let Some(prev_sent) = last_send_at {
+                    let delta_ms = sent_at.duration_since(prev_sent).as_secs_f64() * 1000.0;
+                    if delta_ms > send_delta_max_ms {
+                        send_delta_max_ms = delta_ms;
+                    }
+                    if delta_ms > 200.0 {
+                        gap_over_200_window += 1;
+                        last_interval_was_gap = true;
+                        eprintln!("stream warning: send gap {:.2} ms", delta_ms);
+                    } else {
+                        if last_interval_was_gap && delta_ms < 5.0 {
+                            burst_after_gap_window += 1;
+                            eprintln!("stream warning: burst after gap delta {:.2} ms", delta_ms);
+                        }
+                        last_interval_was_gap = false;
+                    }
+                }
+
+                sent_window += 1;
+                last_send_at = Some(sent_at);
+                next_send_at += frame_duration;
+                if next_send_at < sent_at {
+                    next_send_at = sent_at;
+                }
+
                 seq = seq.wrapping_add(1);
             }
         }
@@ -220,8 +285,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        let manager = StreamManager::new(audio_source, udp, config, shutdown_tx);
+        let manager = StreamManager::new(audio_source, udp, config);
 
         let status = manager.status().await;
         assert!(!status.running);

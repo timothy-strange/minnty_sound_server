@@ -16,10 +16,9 @@ use std::{
         atomic::{AtomicU32, Ordering},
     },
 };
-use tokio::sync::watch;
 
 use crate::control::http::{StartStreamRequest, StreamManager, StreamStatusResponse};
-use crate::monitor::{MonitorManager, MonitorStatus};
+use crate::i18n;
 
 #[derive(Clone)]
 pub struct MeterRef {
@@ -31,7 +30,6 @@ pub struct MeterRef {
 struct AppState {
     meters: Arc<Vec<MeterRef>>,
     stream: Arc<StreamManager>,
-    monitor: Arc<MonitorManager>,
 }
 
 #[derive(Serialize)]
@@ -45,12 +43,6 @@ struct ErrorResponse {
     error: String,
 }
 
-#[derive(Serialize)]
-struct MonitorResponse {
-    active: bool,
-    peak: f32,
-}
-
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
@@ -59,33 +51,24 @@ pub async fn run(
     addr: SocketAddr,
     meters: Vec<MeterRef>,
     stream: Arc<StreamManager>,
-    monitor: Arc<MonitorManager>,
-    shutdown_rx: watch::Receiver<bool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         meters: Arc::new(meters),
         stream,
-        monitor,
     };
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/api/i18n", get(api_i18n))
         .route("/api/levels", get(api_levels))
         .route("/api/stream/start", post(start_stream))
         .route("/api/stream/stop", post(stop_stream))
         .route("/api/stream/status", get(stream_status))
-        .route("/api/monitor/start", post(start_monitor))
-        .route("/api/monitor/stop", post(stop_monitor))
-        .route("/api/monitor/level", get(monitor_level))
-        .route("/api/shutdown", post(shutdown))
         .with_state(state);
-
-    let url = format!("http://{}/", addr);
-    let _ = open::that(&url);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_rx))
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
 
     Ok(())
@@ -102,6 +85,14 @@ async fn api_levels(State(state): State<AppState>) -> impl IntoResponse {
         .collect::<Vec<_>>();
 
     Json(levels)
+}
+
+async fn api_i18n() -> impl IntoResponse {
+    let payload = serde_json::json!({
+        "locale": i18n::locale(),
+        "strings": i18n::strings(),
+    });
+    Json(payload)
 }
 
 async fn start_stream(
@@ -122,7 +113,6 @@ async fn stop_stream(
 ) -> Result<(StatusCode, Json<StreamStatusResponse>), (StatusCode, Json<ErrorResponse>)> {
     match state.stream.stop().await {
         Ok(()) => {
-            state.monitor.stop().await;
             let status = state.stream.status().await;
             Ok((StatusCode::OK, Json(status)))
         }
@@ -135,57 +125,10 @@ async fn stream_status(State(state): State<AppState>) -> impl IntoResponse {
     (StatusCode::OK, Json(status))
 }
 
-async fn start_monitor(
-    State(state): State<AppState>,
-) -> Result<(StatusCode, Json<MonitorResponse>), (StatusCode, Json<ErrorResponse>)> {
-    let stream_status = state.stream.status().await;
-    if stream_status.sink.is_none() {
-        return Err(error_response(
-            StatusCode::BAD_REQUEST,
-            "Stream is not running".to_string(),
-        ));
-    }
-
-    match state.monitor.start().await {
-        Ok(()) => {
-            let status = state.monitor.status().await;
-            Ok((StatusCode::OK, Json(to_monitor_response(status))))
-        }
-        Err(err) => Err(error_response(StatusCode::BAD_REQUEST, err)),
-    }
-}
-
-async fn stop_monitor(State(state): State<AppState>) -> impl IntoResponse {
-    state.monitor.stop().await;
-    let status = state.monitor.status().await;
-    (StatusCode::OK, Json(to_monitor_response(status)))
-}
-
-async fn monitor_level(State(state): State<AppState>) -> impl IntoResponse {
-    let status = state.monitor.status().await;
-    (StatusCode::OK, Json(to_monitor_response(status)))
-}
-
-async fn shutdown(State(state): State<AppState>) -> impl IntoResponse {
-    state.monitor.stop().await;
-    state.stream.shutdown();
-    (StatusCode::OK, Json(()))
-}
-
 fn error_response(status: StatusCode, message: String) -> (StatusCode, Json<ErrorResponse>) {
     (status, Json(ErrorResponse { error: message }))
 }
 
-fn to_monitor_response(status: MonitorStatus) -> MonitorResponse {
-    MonitorResponse {
-        active: status.active,
-        peak: status.peak,
-    }
-}
-
-async fn shutdown_signal(mut shutdown_rx: watch::Receiver<bool>) {
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {},
-        _ = shutdown_rx.changed() => {},
-    }
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }

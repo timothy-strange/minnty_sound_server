@@ -84,6 +84,9 @@ impl AudioController {
                             pulse.stop_capture(active);
                         }
 
+                        pulse.stop_meters();
+                        println!("audio: meters off for streaming");
+
                         let result = pulse
                             .start_capture(&sink, config)
                             .map(|(session, receiver)| {
@@ -92,16 +95,34 @@ impl AudioController {
                             })
                             .map_err(|err| err.to_string());
 
+                        if result.is_err() {
+                            if let Err(err) = pulse.start_meters_if_stopped() {
+                                eprintln!("audio warning: meters restart failed after start error: {err}");
+                            } else {
+                                println!("audio: meters restarted after start failure");
+                            }
+                        }
+
                         let _ = response.send(result);
                     }
                     AudioCommand::StopCapture { response } => {
                         if let Some(active) = capture.take() {
                             pulse.stop_capture(active);
                         }
+
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        if let Err(err) = pulse.start_meters_if_stopped() {
+                            eprintln!("audio warning: meters restart failed after stop: {err}");
+                        } else {
+                            println!("audio: meters restarted after stop");
+                        }
+
                         let _ = response.send(());
                     }
                 }
             }
+
+            eprintln!("audio warning: command loop exited unexpectedly");
 
             if let Some(active) = capture.take() {
                 pulse.stop_capture(active);

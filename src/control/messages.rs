@@ -21,7 +21,7 @@ pub const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig {
     sample_rate: 48_000,
     channels: 2,
     frame_size: 960,
-    pcm_queue_depth: 16,
+    pcm_queue_depth: 64,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +51,7 @@ pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
 }
 
 pub fn build_config_packet(config: StreamConfig) -> Bytes {
+    debug_assert!(config.frame_size <= u16::MAX as usize);
     let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 2 + 4 + 1 + 2);
     buf.put_slice(&MAGIC);
     buf.put_u8(VERSION);
@@ -63,6 +64,8 @@ pub fn build_config_packet(config: StreamConfig) -> Bytes {
 }
 
 pub fn build_stream_packet(seq: u32, timestamp_ms: u64, payload: &[u8]) -> Bytes {
+    // Stream packets intentionally omit MAGIC because only payload stream packets are
+    // sent on this path, and the receiver parser for stream frames expects this header.
     let mut buf = BytesMut::with_capacity(1 + 4 + 8 + 2 + payload.len());
     buf.put_u8(VERSION);
     buf.put_u32(seq);
@@ -120,5 +123,11 @@ mod tests {
         assert_eq!(bytes[0], VERSION);
         let len = u16::from_be_bytes([bytes[13], bytes[14]]);
         assert_eq!(len as usize, payload.len());
+        let seq = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+        assert_eq!(seq, 42);
+        let ts = u64::from_be_bytes([
+            bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12],
+        ]);
+        assert_eq!(ts, 1000);
     }
 }
