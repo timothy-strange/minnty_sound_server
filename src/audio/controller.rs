@@ -85,7 +85,7 @@ impl AudioController {
                         }
 
                         pulse.stop_meters();
-                        println!("audio: meters off for streaming");
+                        crate::log_info!("audio: meters off for streaming");
 
                         let result = pulse
                             .start_capture(&sink, config)
@@ -97,9 +97,9 @@ impl AudioController {
 
                         if result.is_err() {
                             if let Err(err) = pulse.start_meters_if_stopped() {
-                                eprintln!("audio warning: meters restart failed after start error: {err}");
+                                crate::log_warn!("audio warning: meters restart failed after start error: {err}");
                             } else {
-                                println!("audio: meters restarted after start failure");
+                                crate::log_info!("audio: meters restarted after start failure");
                             }
                         }
 
@@ -112,9 +112,9 @@ impl AudioController {
 
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         if let Err(err) = pulse.start_meters_if_stopped() {
-                            eprintln!("audio warning: meters restart failed after stop: {err}");
+                            crate::log_warn!("audio warning: meters restart failed after stop: {err}");
                         } else {
-                            println!("audio: meters restarted after stop");
+                            crate::log_info!("audio: meters restarted after stop");
                         }
 
                         let _ = response.send(());
@@ -122,7 +122,7 @@ impl AudioController {
                 }
             }
 
-            eprintln!("audio warning: command loop exited unexpectedly");
+            crate::log_warn!("audio warning: command loop exited unexpectedly");
 
             if let Some(active) = capture.take() {
                 pulse.stop_capture(active);

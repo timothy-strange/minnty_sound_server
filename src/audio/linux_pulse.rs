@@ -332,7 +332,7 @@ impl PulseManager {
                     let callback_gap_over_200_window =
                         callback_gap_over_200.swap(0, Ordering::Relaxed);
 
-                    println!(
+                    crate::log_info!(
                         "capture diag: emitted={} droppedFull={} ringDroppedNewest={} callbackGapMaxMs={} callbackGapOver200={} framesLeftInRingMax={}",
                         emitted_window,
                         dropped_full_window,
@@ -343,15 +343,16 @@ impl PulseManager {
                     );
 
                     if callback_gap_max_window > 200 {
-                        eprintln!(
+                        crate::log_warn!(
                             "capture warning: callback gap {} ms",
                             callback_gap_max_window
                         );
                     }
                     if backlog_max_window > ring_backlog_warn_threshold {
-                        eprintln!(
+                        crate::log_warn!(
                             "capture warning: ring backlog high {} samples (threshold {})",
-                            backlog_max_window, ring_backlog_warn_threshold
+                            backlog_max_window,
+                            ring_backlog_warn_threshold
                         );
                     }
 

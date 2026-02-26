@@ -153,7 +153,7 @@ async fn stream_loop(
                 break;
             }
             _ = summary_interval.tick() => {
-                println!(
+                crate::log_info!(
                     "stream diag: sent={} gapOver200={} burstAfterGap={} sendDeltaMaxMs={:.2} pacerLateMsMax={:.2}",
                     sent_window,
                     gap_over_200_window,
@@ -193,11 +193,11 @@ async fn stream_loop(
                     if delta_ms > 200.0 {
                         gap_over_200_window += 1;
                         last_interval_was_gap = true;
-                        eprintln!("stream warning: send gap {:.2} ms", delta_ms);
+                        crate::log_warn!("stream warning: send gap {:.2} ms", delta_ms);
                     } else {
                         if last_interval_was_gap && delta_ms < 5.0 {
                             burst_after_gap_window += 1;
-                            eprintln!("stream warning: burst after gap delta {:.2} ms", delta_ms);
+                            crate::log_warn!("stream warning: burst after gap delta {:.2} ms", delta_ms);
                         }
                         last_interval_was_gap = false;
                     }

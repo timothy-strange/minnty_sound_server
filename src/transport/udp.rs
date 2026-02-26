@@ -100,7 +100,7 @@ impl UdpServer {
         drop(stats);
 
         if let Some((frames_sent, send_errors_window, active_clients)) = summary {
-            println!(
+            crate::log_info!(
                 "udp diag: framesSent={} sendErrors={} activeClients={}",
                 frames_sent,
                 send_errors_window,

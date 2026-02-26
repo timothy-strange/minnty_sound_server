@@ -2,6 +2,7 @@ mod audio;
 mod control;
 mod encode;
 mod i18n;
+mod logging;
 mod transport;
 mod web;
 
@@ -41,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "launcher")]
 fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     gtk::init().map_err(|err| format!("failed to initialize GTK: {err}"))?;
-    println!("launcher: GTK initialized");
+    crate::log_info!("launcher: GTK initialized");
 
     let menu = Menu::new();
     let heading = MenuItem::new(&i18n::text("launcher.menu.heading"), false, None);
@@ -57,7 +58,7 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let child = match spawn_server_child(&server_exe) {
         Ok(child) => Some(child),
         Err(err) => {
-            eprintln!("launcher warning: failed to start server child on startup: {err}");
+            crate::log_warn!("launcher warning: failed to start server child on startup: {err}");
             None
         }
     };
@@ -68,7 +69,7 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
         .with_menu(Box::new(menu))
         .with_icon(icon)
         .build()?;
-    println!("launcher: tray icon created");
+    crate::log_info!("launcher: tray icon created");
 
     let menu_rx = MenuEvent::receiver();
     let tray_rx = TrayIconEvent::receiver();
@@ -76,10 +77,10 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let quit_id = quit.id().clone();
     let child_state = Rc::new(RefCell::new(child));
     let child_state_loop = Rc::clone(&child_state);
-    println!("launcher: ready (left-click tray icon or use menu)");
+    crate::log_info!("launcher: ready (left-click tray icon or use menu)");
 
     if let Err(err) = ensure_server_running(&mut child_state.borrow_mut(), &server_exe) {
-        eprintln!("launcher warning: unable to ensure server running at startup: {err}");
+        crate::log_warn!("launcher warning: unable to ensure server running at startup: {err}");
     }
     let _ = wait_for_server_ready(Duration::from_secs(2));
     let _ = open::that("http://127.0.0.1:3000/");
@@ -89,16 +90,16 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
 
         while let Ok(event) = menu_rx.try_recv() {
             if event.id == show_ui_id {
-                println!("launcher: Show UI clicked");
+                crate::log_info!("launcher: Show UI clicked");
                 if let Err(err) =
                     ensure_server_running(&mut child_state_loop.borrow_mut(), &server_exe)
                 {
-                    eprintln!("launcher warning: unable to ensure server running: {err}");
+                    crate::log_warn!("launcher warning: unable to ensure server running: {err}");
                 }
                 let _ = wait_for_server_ready(Duration::from_secs(2));
                 let _ = open::that("http://127.0.0.1:3000/");
             } else if event.id == quit_id {
-                println!("launcher: Quit clicked");
+                crate::log_info!("launcher: Quit clicked");
                 stop_server_child(&mut child_state_loop.borrow_mut());
                 gtk::main_quit();
                 return gtk::glib::ControlFlow::Break;
@@ -107,11 +108,11 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
 
         while let Ok(event) = tray_rx.try_recv() {
             if matches!(event, TrayIconEvent::Click { .. }) {
-                println!("launcher: tray icon clicked -> Show UI");
+                crate::log_info!("launcher: tray icon clicked -> Show UI");
                 if let Err(err) =
                     ensure_server_running(&mut child_state_loop.borrow_mut(), &server_exe)
                 {
-                    eprintln!("launcher warning: unable to ensure server running: {err}");
+                    crate::log_warn!("launcher warning: unable to ensure server running: {err}");
                 }
                 let _ = wait_for_server_ready(Duration::from_secs(2));
                 let _ = open::that("http://127.0.0.1:3000/");
@@ -130,14 +131,14 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "launcher")]
 fn spawn_server_child(server_exe: &std::path::Path) -> Result<Child, Box<dyn std::error::Error>> {
-    println!("launcher: starting server child");
+    crate::log_info!("launcher: starting server child");
     let child = Command::new(server_exe)
         .arg("--server")
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()?;
-    println!("launcher: server child started pid={}", child.id());
+    crate::log_info!("launcher: server child started pid={}", child.id());
     Ok(child)
 }
 
@@ -146,12 +147,12 @@ fn reconcile_server_exit(child: &mut Option<Child>) {
     if let Some(child_proc) = child.as_mut() {
         match child_proc.try_wait() {
             Ok(Some(status)) => {
-                eprintln!("launcher warning: server child exited: {status}");
+                crate::log_warn!("launcher warning: server child exited: {status}");
                 *child = None;
             }
             Ok(None) => {}
             Err(err) => {
-                eprintln!("launcher warning: failed to poll server child: {err}");
+                crate::log_warn!("launcher warning: failed to poll server child: {err}");
             }
         }
     }
@@ -179,17 +180,17 @@ fn stop_server_child(child: &mut Option<Child>) {
         Ok(Some(_)) => return,
         Ok(None) => {}
         Err(err) => {
-            eprintln!("launcher warning: failed to poll server child before stop: {err}");
+            crate::log_warn!("launcher warning: failed to poll server child before stop: {err}");
         }
     }
 
     if let Err(err) = child_proc.kill() {
-        eprintln!("launcher warning: failed to kill server child: {err}");
+        crate::log_warn!("launcher warning: failed to kill server child: {err}");
     }
     if let Err(err) = child_proc.wait() {
-        eprintln!("launcher warning: failed to wait server child exit: {err}");
+        crate::log_warn!("launcher warning: failed to wait server child exit: {err}");
     }
-    println!("launcher: server child stopped");
+    crate::log_info!("launcher: server child stopped");
 }
 
 #[cfg(feature = "launcher")]
@@ -245,7 +246,7 @@ fn build_launcher_icon() -> Result<Icon, Box<dyn std::error::Error>> {
 
 #[cfg(not(feature = "launcher"))]
 fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
-    println!("minnty launcher mode requires --features launcher");
+    crate::log_info!("minnty launcher mode requires --features launcher");
     Ok(())
 }
 
