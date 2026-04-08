@@ -101,6 +101,24 @@
       text-align: center;
       font-size: 13px;
       color: var(--muted);
+      min-height: 1.25em;
+    }
+
+    .outputs-subtitle.hidden {
+      visibility: hidden;
+    }
+
+    .outputs-empty {
+      margin: 0;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 1.25em;
+      visibility: hidden;
+    }
+
+    .outputs-empty.open {
+      visibility: visible;
     }
 
     .sink {
@@ -168,6 +186,44 @@
       justify-content: center;
       gap: 12px;
       flex-wrap: wrap;
+    }
+
+    .test-panel {
+      display: none;
+      margin-top: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(15, 23, 42, 0.35);
+    }
+
+    .test-panel.open {
+      display: block;
+    }
+
+    .test-title {
+      margin: 0 0 8px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .test-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .test-delay-btn {
+      background: #1f2937;
+      color: var(--fg);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
     }
 
     .layout {
@@ -306,9 +362,22 @@
     <div class="row" id="outputsRow">
       <h2 id="outputsTitle" class="outputs-title"></h2>
       <p id="outputsSubtitle" class="outputs-subtitle"></p>
+      <p id="outputsEmpty" class="outputs-empty"></p>
       <div id="sinks"></div>
       <div class="actions">
         <button id="startBtn" disabled></button>
+      </div>
+      <div id="networkTestPanel" class="test-panel">
+        <h3 id="networkTestTitle" class="test-title"></h3>
+        <div class="test-buttons">
+          <button id="gapBtn50" class="test-delay-btn"></button>
+          <button id="gapBtn100" class="test-delay-btn"></button>
+          <button id="gapBtn200" class="test-delay-btn"></button>
+          <button id="gapBtn300" class="test-delay-btn"></button>
+          <button id="gapBtn500" class="test-delay-btn"></button>
+          <button id="gapBtn700" class="test-delay-btn"></button>
+          <button id="gapBtn1000" class="test-delay-btn"></button>
+        </div>
       </div>
     </div>
   </div>
@@ -338,13 +407,27 @@
     const deactivatedBody = document.getElementById("deactivatedBody");
     const outputsRow = document.getElementById("outputsRow");
     const outputsSubtitle = document.getElementById("outputsSubtitle");
+    const outputsEmpty = document.getElementById("outputsEmpty");
+    const networkTestPanel = document.getElementById("networkTestPanel");
+    const networkTestTitle = document.getElementById("networkTestTitle");
+    const gapBtn50 = document.getElementById("gapBtn50");
+    const gapBtn100 = document.getElementById("gapBtn100");
+    const gapBtn200 = document.getElementById("gapBtn200");
+    const gapBtn300 = document.getElementById("gapBtn300");
+    const gapBtn500 = document.getElementById("gapBtn500");
+    const gapBtn700 = document.getElementById("gapBtn700");
+    const gapBtn1000 = document.getElementById("gapBtn1000");
     const rows = [];
     const rowByName = new Map();
     let strings = {};
+    let features = { net_impairment_ui: false };
     let selectedSink = null;
+    let selectedSinkIsActive = false;
     let isStreaming = false;
     let isDeactivated = false;
     let deactivationReason = null;
+    let activeOutputCount = 0;
+    let totalOutputCount = 0;
     let statusFailureCount = 0;
     const OFFLINE_THRESHOLD = 3;
     let lastFocusedBeforeHelp = null;
@@ -354,6 +437,8 @@
     let tabChannel = null;
     let levelsTimer = null;
     let statusTimer = null;
+    const simulateNoOutputs = new URLSearchParams(window.location.search).get("simulate_no_outputs") === "1";
+    const ACTIVE_OUTPUT_THRESHOLD = 0.01;
 
     function t(key, fallback = "") {
       const parts = key.split(".");
@@ -412,6 +497,27 @@
       }
     }
 
+    async function loadFeatures() {
+      try {
+        const res = await fetch("/api/features", { cache: "no-store" });
+        if (!res.ok) return;
+        const payload = await res.json();
+        features = {
+          net_impairment_ui: !!payload.net_impairment_ui,
+        };
+      } catch (_) {
+        features = { net_impairment_ui: false };
+      }
+    }
+
+    function applyFeatureVisibility() {
+      if (features.net_impairment_ui) {
+        networkTestPanel.classList.add("open");
+      } else {
+        networkTestPanel.classList.remove("open");
+      }
+    }
+
     function applyLocalizedStrings() {
       const title = t("web.title");
       document.title = title;
@@ -420,7 +526,15 @@
       helpTitle.textContent = t("web.help.title");
       helpClose.textContent = t("web.help.close");
       outputsTitle.textContent = t("web.outputs.title");
-      outputsSubtitle.textContent = t("web.outputs.subtitle");
+      outputsEmpty.textContent = t("web.outputs.no_outputs");
+      networkTestTitle.textContent = t("web.testing.title");
+      gapBtn50.textContent = t("web.testing.delay_50");
+      gapBtn100.textContent = t("web.testing.delay_100");
+      gapBtn200.textContent = t("web.testing.delay_200");
+      gapBtn300.textContent = t("web.testing.delay_300");
+      gapBtn500.textContent = t("web.testing.delay_500");
+      gapBtn700.textContent = t("web.testing.delay_700");
+      gapBtn1000.textContent = t("web.testing.delay_1000");
       deactivatedTitle.textContent = t("web.tab.deactivated_title");
       setDeactivatedMessage(deactivationReason || "tab_takeover");
 
@@ -432,9 +546,58 @@
       }
 
       updateStartButton();
+      updateOutputsHint();
       for (const row of rows) {
         row.streamingTag.textContent = t("web.labels.streaming");
       }
+      applyFeatureVisibility();
+    }
+
+    function updateOutputsHint() {
+      if (isStreaming) {
+        outputsSubtitle.classList.add("hidden");
+        outputsEmpty.classList.remove("open");
+        return;
+      }
+
+      outputsSubtitle.classList.remove("hidden");
+
+      if (totalOutputCount === 0) {
+        outputsSubtitle.textContent = "";
+        outputsEmpty.classList.add("open");
+        return;
+      }
+
+      outputsEmpty.classList.remove("open");
+
+      if (selectedSink && selectedSinkIsActive) {
+        outputsSubtitle.textContent = t("web.outputs.hint_click_start");
+      } else if (selectedSink && activeOutputCount === 0) {
+        outputsSubtitle.textContent = t("web.outputs.hint_selected_inactive_play_audio");
+      } else if (selectedSink) {
+        outputsSubtitle.textContent = t("web.outputs.hint_selected_inactive");
+      } else if (activeOutputCount > 0) {
+        outputsSubtitle.textContent = t("web.outputs.hint_select_output");
+      } else {
+        outputsSubtitle.textContent = t("web.outputs.hint_play_audio");
+      }
+    }
+
+    function setOutputRowsVisible(visible) {
+      for (const row of rows) {
+        row.row.style.display = visible ? "grid" : "none";
+      }
+    }
+
+    async function triggerOneShotGap(delayMs) {
+      if (!features.net_impairment_ui) return;
+      if (isDeactivated) return;
+
+      await fetch("/api/test/network-gap-once", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delay_ms: delayMs }),
+      });
     }
 
     function setDeactivatedMessage(reason) {
@@ -504,25 +667,33 @@
 
     function resetSelection() {
       selectedSink = null;
+      selectedSinkIsActive = false;
       for (const r of rows) r.row.classList.remove("selected");
       updateStartButton();
       updateStreamingUi();
+      updateOutputsHint();
     }
 
     function updateStartButton() {
       if (isDeactivated) {
-        startBtn.textContent = t("web.buttons.start_server");
+        startBtn.textContent = t("web.buttons.start_stream");
+        startBtn.disabled = true;
+        return;
+      }
+
+      if (totalOutputCount === 0) {
+        startBtn.textContent = t("web.buttons.start_stream");
         startBtn.disabled = true;
         return;
       }
 
       if (isStreaming) {
-        startBtn.textContent = t("web.buttons.stop_server");
+        startBtn.textContent = t("web.buttons.stop_stream");
         startBtn.disabled = false;
         return;
       }
 
-      startBtn.textContent = t("web.buttons.start_server");
+      startBtn.textContent = t("web.buttons.start_stream");
       startBtn.disabled = !selectedSink;
     }
 
@@ -539,6 +710,7 @@
       r.row.classList.add("selected");
       selectedSink = name;
       updateStartButton();
+      updateOutputsHint();
     }
 
     function consumeLeftRight(e) {
@@ -660,15 +832,34 @@
       }
     });
 
+    gapBtn50.addEventListener("click", () => triggerOneShotGap(50));
+    gapBtn100.addEventListener("click", () => triggerOneShotGap(100));
+    gapBtn200.addEventListener("click", () => triggerOneShotGap(200));
+    gapBtn300.addEventListener("click", () => triggerOneShotGap(300));
+    gapBtn500.addEventListener("click", () => triggerOneShotGap(500));
+    gapBtn700.addEventListener("click", () => triggerOneShotGap(700));
+    gapBtn1000.addEventListener("click", () => triggerOneShotGap(1000));
+
     async function update() {
       if (isDeactivated) return;
       try {
         const res = await fetch("/api/levels", { cache: "no-store" });
         if (!res.ok) return;
 
-        const data = await res.json();
+        const fetchedData = await res.json();
+        const data = simulateNoOutputs ? [] : fetchedData;
+        totalOutputCount = data.length;
+        activeOutputCount = data.filter((s) => s.peak > ACTIVE_OUTPUT_THRESHOLD).length;
+        selectedSinkIsActive = selectedSink
+          ? data.some((s) => s.name === selectedSink && s.peak > ACTIVE_OUTPUT_THRESHOLD)
+          : false;
+        setOutputRowsVisible(totalOutputCount > 0);
+        updateStartButton();
+        updateOutputsHint();
+
         for (const s of data) {
           const row = getRow(s.name);
+          row.row.style.display = "grid";
           if (!isStreaming) {
             const pct = Math.max(0, Math.min(1, s.peak)) * 100;
             row.fill.style.width = pct.toFixed(1) + "%";
@@ -690,6 +881,7 @@
         }
         updateStartButton();
         updateStreamingUi();
+        updateOutputsHint();
       } catch (_) {
         statusFailureCount += 1;
         if (statusFailureCount >= OFFLINE_THRESHOLD) {
@@ -711,14 +903,17 @@
       }
       await refreshStatus();
       updateStreamingUi();
+      updateOutputsHint();
     });
 
     // Ensure reload starts with no selection and disabled button.
     async function init() {
       await loadI18n();
+      await loadFeatures();
       initTabCoordination();
       applyLocalizedStrings();
       resetSelection();
+      updateOutputsHint();
 
       levelsTimer = setInterval(update, 50);
       statusTimer = setInterval(refreshStatus, 1000);

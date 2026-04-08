@@ -6,6 +6,8 @@ pub const VERSION: u8 = 1;
 pub const MSG_HELLO: u8 = 1;
 pub const MSG_CONFIG: u8 = 2;
 pub const MSG_KEEPALIVE: u8 = 3;
+pub const MSG_STATUS: u8 = 4;
+pub const MSG_STATUS_REQUEST: u8 = 5;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StreamConfig {
@@ -28,6 +30,8 @@ pub const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig {
 pub enum ControlMessage {
     Hello,
     KeepAlive,
+    Status,
+    StatusRequest,
 }
 
 pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
@@ -46,6 +50,8 @@ pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
     match data[5] {
         MSG_HELLO => Some(ControlMessage::Hello),
         MSG_KEEPALIVE => Some(ControlMessage::KeepAlive),
+        MSG_STATUS => Some(ControlMessage::Status),
+        MSG_STATUS_REQUEST => Some(ControlMessage::StatusRequest),
         _ => None,
     }
 }
@@ -75,6 +81,16 @@ pub fn build_stream_packet(seq: u32, timestamp_ms: u64, payload: &[u8]) -> Bytes
     buf.freeze()
 }
 
+pub fn build_status_packet(streaming: bool, session_id: u64) -> Bytes {
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 1 + 8);
+    buf.put_slice(&MAGIC);
+    buf.put_u8(VERSION);
+    buf.put_u8(MSG_STATUS);
+    buf.put_u8(u8::from(streaming));
+    buf.put_u64(session_id);
+    buf.freeze()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +113,24 @@ mod tests {
         assert!(matches!(
             parse_control_packet(&keepalive),
             Some(ControlMessage::KeepAlive)
+        ));
+
+        let mut status = Vec::new();
+        status.extend_from_slice(&MAGIC);
+        status.push(VERSION);
+        status.push(MSG_STATUS);
+        assert!(matches!(
+            parse_control_packet(&status),
+            Some(ControlMessage::Status)
+        ));
+
+        let mut status_request = Vec::new();
+        status_request.extend_from_slice(&MAGIC);
+        status_request.push(VERSION);
+        status_request.push(MSG_STATUS_REQUEST);
+        assert!(matches!(
+            parse_control_packet(&status_request),
+            Some(ControlMessage::StatusRequest)
         ));
 
         let mut invalid = Vec::new();
@@ -129,5 +163,19 @@ mod tests {
             bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12],
         ]);
         assert_eq!(ts, 1000);
+    }
+
+    #[test]
+    fn build_status_packet_contains_state_and_session() {
+        let packet = build_status_packet(true, 0x1122_3344_5566_7788);
+        let bytes = packet.as_ref();
+        assert_eq!(&bytes[0..4], MAGIC.as_slice());
+        assert_eq!(bytes[4], VERSION);
+        assert_eq!(bytes[5], MSG_STATUS);
+        assert_eq!(bytes[6], 1);
+        let session_id = u64::from_be_bytes([
+            bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+        ]);
+        assert_eq!(session_id, 0x1122_3344_5566_7788);
     }
 }

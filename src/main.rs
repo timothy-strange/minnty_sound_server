@@ -3,6 +3,7 @@ mod control;
 mod encode;
 mod i18n;
 mod logging;
+mod testing;
 mod transport;
 mod web;
 
@@ -12,21 +13,15 @@ use control::messages::DEFAULT_STREAM_CONFIG;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use testing::net_impairment::NetImpairmentController;
 use transport::udp::UdpServer;
 
-#[cfg(feature = "launcher")]
 use std::cell::RefCell;
-#[cfg(feature = "launcher")]
 use std::net::TcpStream;
-#[cfg(feature = "launcher")]
 use std::process::{Child, Command, Stdio};
-#[cfg(feature = "launcher")]
 use std::rc::Rc;
-#[cfg(feature = "launcher")]
 use std::time::{Duration, Instant};
-#[cfg(feature = "launcher")]
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-#[cfg(feature = "launcher")]
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 
 #[tokio::main(flavor = "multi_thread")]
@@ -39,7 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_server().await
 }
 
-#[cfg(feature = "launcher")]
 fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     gtk::init().map_err(|err| format!("failed to initialize GTK: {err}"))?;
     crate::log_info!("launcher: GTK initialized");
@@ -129,7 +123,6 @@ fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "launcher")]
 fn spawn_server_child(server_exe: &std::path::Path) -> Result<Child, Box<dyn std::error::Error>> {
     crate::log_info!("launcher: starting server child");
     let child = Command::new(server_exe)
@@ -142,7 +135,6 @@ fn spawn_server_child(server_exe: &std::path::Path) -> Result<Child, Box<dyn std
     Ok(child)
 }
 
-#[cfg(feature = "launcher")]
 fn reconcile_server_exit(child: &mut Option<Child>) {
     if let Some(child_proc) = child.as_mut() {
         match child_proc.try_wait() {
@@ -158,7 +150,6 @@ fn reconcile_server_exit(child: &mut Option<Child>) {
     }
 }
 
-#[cfg(feature = "launcher")]
 fn ensure_server_running(
     child: &mut Option<Child>,
     server_exe: &std::path::Path,
@@ -170,7 +161,6 @@ fn ensure_server_running(
     Ok(())
 }
 
-#[cfg(feature = "launcher")]
 fn stop_server_child(child: &mut Option<Child>) {
     let Some(mut child_proc) = child.take() else {
         return;
@@ -193,7 +183,6 @@ fn stop_server_child(child: &mut Option<Child>) {
     crate::log_info!("launcher: server child stopped");
 }
 
-#[cfg(feature = "launcher")]
 fn wait_for_server_ready(timeout: Duration) -> bool {
     let addr: std::net::SocketAddr = match "127.0.0.1:3000".parse() {
         Ok(addr) => addr,
@@ -210,7 +199,6 @@ fn wait_for_server_ready(timeout: Duration) -> bool {
     false
 }
 
-#[cfg(feature = "launcher")]
 fn build_launcher_icon() -> Result<Icon, Box<dyn std::error::Error>> {
     let width = 16u32;
     let height = 16u32;
@@ -244,26 +232,27 @@ fn build_launcher_icon() -> Result<Icon, Box<dyn std::error::Error>> {
     Ok(Icon::from_rgba(rgba, width, height)?)
 }
 
-#[cfg(not(feature = "launcher"))]
-fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
-    crate::log_info!("minnty launcher mode requires --features launcher");
-    Ok(())
-}
-
 async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let config = DEFAULT_STREAM_CONFIG;
+    let session_id = rand::random::<u64>();
 
     let (audio_controller, meters) = AudioController::new()?;
 
     let udp_addr = SocketAddr::from(([0, 0, 0, 0], config.udp_port));
-    let udp_server = Arc::new(UdpServer::bind(udp_addr, config).await?);
+    let udp_server = Arc::new(UdpServer::bind(udp_addr, config, session_id).await?);
     let udp_listener = Arc::clone(&udp_server);
     tokio::spawn(async move {
         let _ = udp_listener.run_listener().await;
     });
 
     let audio_source: Arc<dyn AudioSource> = Arc::new(audio_controller);
-    let stream_manager = Arc::new(StreamManager::new(audio_source, udp_server, config));
+    let impairment = Arc::new(NetImpairmentController::new());
+    let stream_manager = Arc::new(StreamManager::new(
+        audio_source,
+        udp_server,
+        config,
+        Arc::clone(&impairment),
+    ));
     let meters = meters
         .into_iter()
         .map(|(name, peak)| web::MeterRef { name, peak })

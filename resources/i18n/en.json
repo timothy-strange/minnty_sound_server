@@ -10,8 +10,8 @@
   "web": {
     "title": "Minnty Sound Server",
     "buttons": {
-      "start_server": "Start Server",
-      "stop_server": "Stop Server",
+      "start_stream": "Start Stream",
+      "stop_stream": "Stop Stream",
       "help": "Help"
     },
     "labels": {
@@ -19,7 +19,22 @@
     },
     "outputs": {
       "title": "Audio Outputs",
-      "subtitle": "Select an output to stream"
+      "hint_play_audio": "Play some audio to see which outputs are active.",
+      "hint_select_output": "Select an output to stream.",
+      "hint_click_start": "Click the start stream button to stream.",
+      "hint_selected_inactive": "The selected output is inactive.",
+      "hint_selected_inactive_play_audio": "The selected output is inactive. Play some audio to see which outputs are active.",
+      "no_outputs": "No outputs have been found."
+    },
+    "testing": {
+      "title": "Network Gap Test (One-Shot)",
+      "delay_50": "50ms",
+      "delay_100": "100ms",
+      "delay_200": "200ms",
+      "delay_300": "300ms",
+      "delay_500": "500ms",
+      "delay_700": "700ms",
+      "delay_1000": "1s"
     },
     "tab": {
       "deactivated_title": "Deactivated",
@@ -35,9 +50,9 @@
       "close": "Close",
       "lines": [
         "You should see your audio outputs listed in the browser UI. Play some audio to see which output is active (the active level meter will move).",
-        "To stream, select the active output, then click the \"Start Server\" button.",
-        "While streaming, the button will change to \"Stop Server\", and the level meters will be disabled.",
-        "To stop streaming, click the \"Stop Server\" button. It will toggle back to \"Start Server\".",
+        "To stream, select the active output, then click the \"Start Stream\" button.",
+        "While streaming, the button will change to \"Stop Stream\", and the level meters will be disabled.",
+        "To stop streaming, click the \"Stop Stream\" button. It will toggle back to \"Start Stream\".",
         "To quit the app completely, select \"Quit\" from the system tray menu (the browser UI will deactivate if it's still open).",
         "You can close the browser UI at any time and reopen it by selecting \"Show UI\" from the system tray menu."
       ]

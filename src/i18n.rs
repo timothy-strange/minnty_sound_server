@@ -12,7 +12,6 @@ pub fn strings() -> &'static Value {
     STRINGS.get_or_init(|| serde_json::from_str(EN_STRINGS).unwrap_or(Value::Null))
 }
 
-#[cfg(feature = "launcher")]
 pub fn text(key: &str) -> String {
     lookup(strings(), key)
         .and_then(Value::as_str)
@@ -20,7 +19,6 @@ pub fn text(key: &str) -> String {
         .unwrap_or_else(|| key.to_owned())
 }
 
-#[cfg(feature = "launcher")]
 fn lookup<'a>(root: &'a Value, dotted_key: &str) -> Option<&'a Value> {
     let mut node = root;
     for segment in dotted_key.split('.') {

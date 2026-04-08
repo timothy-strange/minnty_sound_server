@@ -17,10 +17,11 @@ mdns-sd = "0.10"
 local-ip-address = "0.6"
 async-trait = "0.1"
 rtrb = "0.3"
-tray-icon = { version = "0.21", optional = true }
-gtk = { version = "0.18", optional = true }
+tray-icon = "0.21"
+gtk = "0.18"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rand = "0.8"
 
 [features]
 default = []
-launcher = ["dep:tray-icon", "dep:gtk"]
+net_impairment_ui = []

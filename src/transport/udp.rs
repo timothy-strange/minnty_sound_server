@@ -1,9 +1,10 @@
 use crate::control::messages::{
-    ControlMessage, StreamConfig, build_config_packet, parse_control_packet,
+    ControlMessage, StreamConfig, build_config_packet, build_status_packet, parse_control_packet,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -24,6 +25,8 @@ pub struct UdpServer {
     socket: Arc<UdpSocket>,
     clients: Arc<Mutex<HashMap<SocketAddr, ClientInfo>>>,
     config: StreamConfig,
+    session_id: u64,
+    streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
 }
 
@@ -31,12 +34,15 @@ impl UdpServer {
     pub async fn bind(
         addr: SocketAddr,
         config: StreamConfig,
+        session_id: u64,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let socket = UdpSocket::bind(addr).await?;
         Ok(Self {
             socket: Arc::new(socket),
             clients: Arc::new(Mutex::new(HashMap::new())),
             config,
+            session_id,
+            streaming: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(Mutex::new(UdpStats {
                 frames_sent_window: 0,
                 send_errors_window: 0,
@@ -50,10 +56,23 @@ impl UdpServer {
         loop {
             let (len, addr) = self.socket.recv_from(&mut buffer).await?;
             if let Some(message) = parse_control_packet(&buffer[..len]) {
-                self.register_client(addr).await;
-                if matches!(message, ControlMessage::Hello) {
-                    let packet = build_config_packet(self.config);
-                    let _ = self.socket.send_to(&packet, addr).await;
+                match message {
+                    ControlMessage::Hello => {
+                        self.register_playback_client(addr).await;
+                        let packet = build_config_packet(self.config);
+                        let _ = self.socket.send_to(&packet, addr).await;
+                    }
+                    ControlMessage::KeepAlive => {
+                        self.refresh_playback_client(addr).await;
+                    }
+                    ControlMessage::StatusRequest => {
+                        let packet = build_status_packet(
+                            self.streaming.load(Ordering::Relaxed),
+                            self.session_id,
+                        );
+                        let _ = self.socket.send_to(&packet, addr).await;
+                    }
+                    ControlMessage::Status => {}
                 }
             }
         }
@@ -109,7 +128,11 @@ impl UdpServer {
         }
     }
 
-    async fn register_client(&self, addr: SocketAddr) {
+    pub fn set_streaming(&self, streaming: bool) {
+        self.streaming.store(streaming, Ordering::Relaxed);
+    }
+
+    async fn register_playback_client(&self, addr: SocketAddr) {
         let mut clients = self.clients.lock().await;
         clients.insert(
             addr,
@@ -117,5 +140,12 @@ impl UdpServer {
                 last_seen: Instant::now(),
             },
         );
+    }
+
+    async fn refresh_playback_client(&self, addr: SocketAddr) {
+        let mut clients = self.clients.lock().await;
+        if let Some(client) = clients.get_mut(&addr) {
+            client.last_seen = Instant::now();
+        }
     }
 }

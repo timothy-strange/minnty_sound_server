@@ -2,6 +2,7 @@ use crate::audio::capture::PcmFrame;
 use crate::audio::controller::AudioSource;
 use crate::control::messages::{StreamConfig, build_stream_packet};
 use crate::encode::opus::OpusEncoder;
+use crate::testing::net_impairment::NetImpairmentController;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub struct StreamManager {
     audio: Arc<dyn AudioSource>,
     udp: Arc<UdpServer>,
     config: StreamConfig,
+    impairment: Arc<NetImpairmentController>,
     state: Mutex<StreamRuntime>,
 }
 
@@ -41,11 +43,13 @@ impl StreamManager {
         audio: Arc<dyn AudioSource>,
         udp: Arc<UdpServer>,
         config: StreamConfig,
+        impairment: Arc<NetImpairmentController>,
     ) -> Self {
         Self {
             audio,
             udp,
             config,
+            impairment,
             state: Mutex::new(StreamRuntime {
                 running: false,
                 sink: None,
@@ -70,15 +74,25 @@ impl StreamManager {
             }
         };
         let udp = Arc::clone(&self.udp);
+        let impairment = Arc::clone(&self.impairment);
         let (stop_tx, mut stop_rx) = oneshot::channel();
         let frame_duration = Duration::from_secs_f64(
             self.config.frame_size as f64 / self.config.sample_rate as f64,
         );
 
         let task = tokio::spawn(async move {
-            stream_loop(&mut encoder, receiver, udp, &mut stop_rx, frame_duration).await;
+            stream_loop(
+                &mut encoder,
+                receiver,
+                udp,
+                &mut stop_rx,
+                frame_duration,
+                impairment,
+            )
+            .await;
         });
 
+        self.udp.set_streaming(true);
         state.running = true;
         state.sink = Some(sink);
         state.stop_tx = Some(stop_tx);
@@ -114,6 +128,7 @@ impl StreamManager {
         }
 
         self.audio.stop_capture().await?;
+        self.udp.set_streaming(false);
 
         Ok(())
     }
@@ -126,6 +141,11 @@ impl StreamManager {
             udp_port: self.config.udp_port,
         }
     }
+
+    #[cfg(feature = "net_impairment_ui")]
+    pub fn trigger_test_gap_once_ms(&self, delay_ms: u64) -> Result<(), String> {
+        self.impairment.trigger_gap_once_ms(delay_ms)
+    }
 }
 
 async fn stream_loop(
@@ -134,6 +154,7 @@ async fn stream_loop(
     udp: Arc<UdpServer>,
     stop_rx: &mut oneshot::Receiver<()>,
     frame_duration: Duration,
+    impairment: Arc<NetImpairmentController>,
 ) {
     let mut seq = 0u32;
     let mut next_send_at = Instant::now();
@@ -169,6 +190,50 @@ async fn stream_loop(
             }
             frame = receiver.recv() => {
                 let Some(frame) = frame else { break; };
+
+                if let Some(gap) = impairment.take_gap_once() {
+                    crate::log_warn!(
+                        "stream test: injecting one-shot gap {} ms",
+                        gap.as_millis()
+                    );
+                    let pause_deadline = Instant::now() + gap;
+                    let mut dropped_during_gap = 0u64;
+
+                    loop {
+                        let now = Instant::now();
+                        if now >= pause_deadline {
+                            break;
+                        }
+
+                        let remaining = pause_deadline - now;
+                        tokio::select! {
+                            _ = &mut *stop_rx => {
+                                return;
+                            }
+                            maybe_frame = receiver.recv() => {
+                                match maybe_frame {
+                                    Some(_) => {
+                                        dropped_during_gap += 1;
+                                    }
+                                    None => {
+                                        return;
+                                    }
+                                }
+                            }
+                            _ = tokio::time::sleep(remaining) => {
+                                break;
+                            }
+                        }
+                    }
+
+                    if dropped_during_gap > 0 {
+                        crate::log_warn!(
+                            "stream test: dropped {} queued frames during injected gap",
+                            dropped_during_gap
+                        );
+                    }
+                    next_send_at = Instant::now();
+                }
 
                 let now = Instant::now();
                 if now < next_send_at {
@@ -220,6 +285,7 @@ async fn stream_loop(
 mod tests {
     use super::*;
     use crate::control::messages::DEFAULT_STREAM_CONFIG;
+    use crate::testing::net_impairment::NetImpairmentController;
     use async_trait::async_trait;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -281,11 +347,12 @@ mod tests {
         let audio = Arc::new(MockAudio::new());
         let audio_source: Arc<dyn AudioSource> = audio.clone();
         let udp = Arc::new(
-            UdpServer::bind(SocketAddr::from(([127, 0, 0, 1], 0)), config)
+            UdpServer::bind(SocketAddr::from(([127, 0, 0, 1], 0)), config, 123)
                 .await
                 .unwrap(),
         );
-        let manager = StreamManager::new(audio_source, udp, config);
+        let impairment = Arc::new(NetImpairmentController::new());
+        let manager = StreamManager::new(audio_source, udp, config, impairment);
 
         let status = manager.status().await;
         assert!(!status.running);

@@ -9,6 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use serde::Serialize;
+#[cfg(feature = "net_impairment_ui")]
+use serde::Deserialize;
 use std::{
     net::SocketAddr,
     sync::{
@@ -43,6 +45,17 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Serialize)]
+struct FeatureFlagsResponse {
+    net_impairment_ui: bool,
+}
+
+#[cfg(feature = "net_impairment_ui")]
+#[derive(Deserialize)]
+struct TriggerGapRequest {
+    delay_ms: u64,
+}
+
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
@@ -59,12 +72,17 @@ pub async fn run(
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/api/features", get(api_features))
         .route("/api/i18n", get(api_i18n))
         .route("/api/levels", get(api_levels))
         .route("/api/stream/start", post(start_stream))
         .route("/api/stream/stop", post(stop_stream))
-        .route("/api/stream/status", get(stream_status))
-        .with_state(state);
+        .route("/api/stream/status", get(stream_status));
+
+    #[cfg(feature = "net_impairment_ui")]
+    let app = app.route("/api/test/network-gap-once", post(api_trigger_network_gap_once));
+
+    let app = app.with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
@@ -93,6 +111,26 @@ async fn api_i18n() -> impl IntoResponse {
         "strings": i18n::strings(),
     });
     Json(payload)
+}
+
+async fn api_features() -> impl IntoResponse {
+    Json(FeatureFlagsResponse {
+        net_impairment_ui: cfg!(feature = "net_impairment_ui"),
+    })
+}
+
+#[cfg(feature = "net_impairment_ui")]
+async fn api_trigger_network_gap_once(
+    State(state): State<AppState>,
+    Json(payload): Json<TriggerGapRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
+    match state.stream.trigger_test_gap_once_ms(payload.delay_ms) {
+        Ok(()) => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "ok": true, "delay_ms": payload.delay_ms })),
+        )),
+        Err(err) => Err(error_response(StatusCode::BAD_REQUEST, err)),
+    }
 }
 
 async fn start_stream(
