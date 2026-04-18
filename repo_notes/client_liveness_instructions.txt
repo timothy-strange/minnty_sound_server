@@ -1,0 +1,119 @@
+Minnty client liveness integration notes
+=======================================
+
+Server-side protocol changes
+----------------------------
+
+The protocol now separates playback keepalive from liveness probing.
+
+Control message types:
+- HELLO = 1
+- CONFIG = 2
+- KEEPALIVE = 3
+- STATUS = 4
+- STATUS_REQUEST = 5
+
+Protocol semantics
+------------------
+
+HELLO
+- Sent by a playback client during session setup.
+- Server replies with CONFIG.
+- Server registers that sender as a playback client.
+
+KEEPALIVE
+- Sent only by an active playback session.
+- Server uses it only to refresh an already-known playback client.
+- KEEPALIVE must not be used for generic liveness probing.
+- A KEEPALIVE from an unknown socket will not create a playback client and should not be relied on for liveness.
+
+STATUS_REQUEST
+- Sent by the client liveness monitor to a discovered server.
+- Server replies with STATUS.
+- STATUS_REQUEST does not register or refresh a playback client.
+- STATUS_REQUEST will never attract audio traffic.
+
+STATUS packet wire format
+-------------------------
+
+All fields are big-endian.
+
+- bytes 0..4   MAGIC = "MNTY"
+- byte  4      VERSION = 1
+- byte  5      MSG_STATUS = 4
+- byte  6      streaming flag (0 = not streaming, 1 = streaming)
+- bytes 7..15  session_id (u64)
+
+Recommended client behavior
+---------------------------
+
+Treat mDNS and UDP liveness as separate signals:
+
+1. mDNS is discovery.
+2. STATUS_REQUEST/STATUS is liveness.
+
+Do not rely on Android/mDNS removal timing to determine that a server is offline.
+
+Suggested timing
+----------------
+
+- Send STATUS_REQUEST to each known server every 1 second.
+- If no STATUS reply is received for 3 consecutive seconds, mark the server offline.
+- Remove the server from the visible "online servers" list at that point, or clearly mark it offline.
+
+Recommended cache behavior
+--------------------------
+
+Do not immediately forget the server internally when it goes offline.
+
+Instead:
+- keep a short-lived cached record for at least 30 to 60 seconds
+- continue sending STATUS_REQUEST to the last known endpoint during that window
+
+This allows fast reappearance even if Android has not yet emitted a fresh mDNS event.
+
+When the client receives STATUS again:
+- mark the server alive immediately
+- restore it to the visible list immediately
+
+Session ID handling
+-------------------
+
+The server generates a new random u64 session_id each time the server process starts.
+
+Use session_id to detect restarts:
+- if the endpoint is the same but session_id changes, treat it as a fresh server instance
+- reset any old per-session assumptions when that happens
+
+Suggested client state model
+----------------------------
+
+For each discovered server, track at least:
+- host/IP
+- UDP port
+- last_status_reply_time
+- session_id
+- streaming flag
+- visible/online state
+
+Suggested UI behavior
+---------------------
+
+- A server should appear in the list when discovered by mDNS.
+- It should become "online" only while STATUS replies are arriving.
+- If STATUS stops for ~3 seconds, hide it from the active list or mark it offline.
+- If STATUS resumes, restore it immediately, even if mDNS rediscovery has not happened yet.
+
+Playback session behavior
+-------------------------
+
+- StreamSession should continue to use HELLO during setup and KEEPALIVE for active playback maintenance.
+- ServerLivenessMonitor should use STATUS_REQUEST only.
+- Keep those two sockets/flows logically separate.
+
+Summary
+-------
+
+Use mDNS for discovery and STATUS_REQUEST/STATUS for timely liveness.
+Use KEEPALIVE only for an active playback session.
+This avoids the several-minute delay caused by waiting for Android's mDNS layer to report service removal, and also prevents liveness probes from accidentally becoming audio destinations.

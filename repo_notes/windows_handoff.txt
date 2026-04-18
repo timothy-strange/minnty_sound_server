@@ -1,0 +1,131 @@
+Windows Handoff Summary
+=======================
+
+Project purpose
+---------------
+
+Minnty is a local-network audio streaming server with:
+- a launcher/tray icon process
+- a `--server` child process
+- a browser-based web UI
+- UDP audio streaming using Opus
+
+Current architecture
+--------------------
+
+- Default executable mode: launcher
+- Child mode: `--server`
+- Launcher starts the server child, opens the web UI, and provides `Show UI` / `Quit`
+- Web UI is served by the server process
+
+Important protocol decisions already implemented
+------------------------------------------------
+
+Control protocol split:
+- HELLO -> CONFIG
+- KEEPALIVE = playback-session maintenance only
+- STATUS_REQUEST -> STATUS
+
+STATUS payload includes:
+- streaming flag
+- session_id: u64
+
+This was done to prevent liveness-probe sockets from being registered as playback clients.
+
+Important completed work
+------------------------
+
+1. Launcher is built in by default (no launcher feature flag anymore).
+2. Launcher has been split into platform modules:
+   - `src/launcher/linux.rs`
+   - `src/launcher/windows.rs`
+3. Audio backend has been split into platform modules:
+   - `src/audio/backend/mod.rs`
+   - Linux: current PulseAudio backend
+   - Windows: first-pass WASAPI backend
+4. Web UI improvements completed:
+   - help modal
+   - deactivated-tab logic
+   - dynamic output hint text
+   - optional one-shot network-gap test UI via feature flag
+5. Logging is timestamped in UTC RFC3339 milliseconds.
+
+Current build status
+--------------------
+
+Linux:
+- `cargo check` passes
+- `cargo test` passes
+
+Windows cross-check from Ubuntu:
+- `cargo check --target x86_64-pc-windows-gnu` passes
+
+This means the codebase now cross-compiles for Windows, but it has not yet been runtime-tested on an actual Windows machine.
+
+Files to inspect first on Windows
+---------------------------------
+
+- `src/main.rs`
+- `src/launcher/mod.rs`
+- `src/launcher/windows.rs`
+- `src/audio/backend/windows.rs`
+- `src/audio/controller.rs`
+- `src/audio/capture.rs`
+- `src/web/index.html`
+- `repo_notes/client_liveness_instructions.txt`
+
+Windows-specific current state
+------------------------------
+
+Launcher:
+- First-pass Windows tray path uses `tray-icon`
+- It should spawn the `--server` child, open the UI, and support `Show UI` / `Quit`
+- It has not been runtime-tested on Windows yet
+
+Audio backend:
+- First-pass implementation uses `wasapi`
+- It enumerates render devices for output names
+- It attempts loopback capture from the selected/default render device
+- It converts float samples to `i16` frames for the existing pipeline
+- Meter support on Windows is minimal for now
+
+Likely runtime risk areas on Windows
+------------------------------------
+
+1. Tray behavior and event loop behavior in `src/launcher/windows.rs`
+2. WASAPI device selection by friendly name
+3. Loopback capture initialization mode
+4. Sample format assumptions and conversion
+5. Whether meters/output names behave well across devices
+
+Recommended next test on a real Windows machine
+-----------------------------------------------
+
+1. Build and run the app on Windows.
+2. Verify tray icon appears.
+3. Verify browser UI opens automatically.
+4. Verify output list is shown.
+5. Select an output and click Start Stream.
+6. Verify Android client receives audio.
+7. Verify liveness/status behavior still works.
+
+Useful commands
+---------------
+
+Normal build:
+- `cargo build`
+
+Build with test network-gap UI:
+- `cargo build --features net_impairment_ui`
+
+Linux cross-check to Windows from Ubuntu:
+- `cargo check --target x86_64-pc-windows-gnu`
+
+Design decisions already agreed
+-------------------------------
+
+- Launcher always included
+- Try `tray-icon` on Windows first; assess later if native Win32 tray is needed
+- Windows audio path should use WASAPI loopback
+- Keep Linux and Windows logic cleanly separated in different files
+- Keep using one codebase with target-specific compilation

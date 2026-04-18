@@ -1,0 +1,122 @@
+Recommended protocol change: separate playback keepalive from liveness probing.
+
+Problem being solved
+
+The current protocol uses KEEPALIVE for two different purposes:
+
+1. Maintain an active playback client session.
+2. Probe whether a discovered server is alive.
+
+That creates ambiguity on the server. If a liveness probe is sent from a separate UDP socket, the server may treat that probe sender as a real playback client. When the server is streaming, it may then send audio data to the liveness-probe socket, which is not what we want.
+
+Recommended protocol shape
+
+Use three distinct control flows:
+
+1. HELLO -> CONFIG
+2. STATUS_REQUEST -> STATUS
+3. KEEPALIVE -> refresh active playback client only
+
+Recommended control message types
+
+- MSG_HELLO = 1
+- MSG_CONFIG = 2
+- MSG_KEEPALIVE = 3
+- MSG_STATUS = 4
+- MSG_STATUS_REQUEST = 5
+
+Recommended semantics
+
+HELLO
+- Sent by a playback client when establishing a playback session.
+- Server replies with CONFIG.
+- This remains the session/bootstrap step.
+
+KEEPALIVE
+- Sent only by a playback session that is already established and is intended to keep receiving audio.
+- Server must treat this as a playback-session maintenance signal.
+- Server should refresh client activity/timeout only for a real playback client.
+- Server should not use liveness probe traffic as a reason to add or refresh a playback destination.
+
+STATUS_REQUEST
+- Sent by the client liveness monitor to any discovered server that the app wants to check.
+- Server replies with STATUS.
+- Server must not register or refresh the sender as an active playback client when processing STATUS_REQUEST.
+- Server must not stream audio to a sender that has only sent STATUS_REQUEST packets.
+
+STATUS
+- Sent by the server as a reply to STATUS_REQUEST.
+- Should describe whether the server is alive and whether it is currently streaming.
+- Suggested payload:
+  - streaming: boolean
+  - session_id: u64
+- session_id should change whenever the server restarts or begins a new logical server instance, so the client can detect restarts cleanly.
+
+Why the distinction matters
+
+Playback keepalive and liveness probing serve different purposes.
+
+Playback keepalive:
+- Purpose: keep an active playback client alive.
+- Sender: StreamSession/playback socket.
+- Consequence on server: sender remains eligible to receive audio.
+
+Liveness probing:
+- Purpose: check whether a discovered server is online/reachable.
+- Sender: separate liveness monitor socket.
+- Consequence on server: sender gets STATUS reply only.
+- Must not cause the sender to become an audio destination.
+
+Server-side behavior requirements
+
+1. The server must keep a clear distinction between playback clients and liveness probes.
+2. Receiving STATUS_REQUEST must never add the sender to the playback client table.
+3. Receiving STATUS_REQUEST must never refresh playback client timeout.
+4. Receiving KEEPALIVE should only refresh an already valid playback client, or a client that has completed whatever session/bootstrap conditions the server requires.
+5. The server should stream audio only to playback clients, never to liveness probe endpoints.
+
+Recommended implementation approach on the server
+
+1. Add parsing/building support for MSG_STATUS_REQUEST.
+2. On STATUS_REQUEST:
+   - build STATUS reply
+   - send STATUS reply back to the sender
+   - do not mutate playback-client registration/state
+3. On KEEPALIVE:
+   - refresh playback-client last-seen only
+   - do not treat it as a generic liveness request
+4. Ensure audio send path only targets playback-client entries.
+
+Client design this enables
+
+After this server-side change, the Android client can cleanly do the following:
+
+1. StreamSession
+   - Sends HELLO during connect/setup.
+   - Sends KEEPALIVE only for the active playback server.
+   - Owns audio playback session state.
+
+2. ServerLivenessMonitor
+   - Sends STATUS_REQUEST to discovered mDNS servers.
+   - Receives STATUS replies.
+   - Tracks online/offline/streaming/session_id.
+   - Never risks attracting audio traffic.
+
+3. Connected server timeout behavior
+   - Active playback server health can still be inferred from session-side traffic.
+   - Non-connected discovered servers are monitored by STATUS_REQUEST/STATUS.
+
+Suggested STATUS timeout policy on the client
+
+- Send STATUS_REQUEST every 1 second.
+- Mark server offline after about 3 seconds with no STATUS reply.
+- Keep the server cached in the UI until Android removes the mDNS record.
+
+Summary
+
+The key protocol rule is:
+
+- KEEPALIVE means: maintain active playback client.
+- STATUS_REQUEST means: report server liveness/status only.
+
+Those two packet types must remain distinct in server behavior so the client can monitor server aliveness without accidentally creating fake playback clients or causing audio to be sent to the wrong socket.

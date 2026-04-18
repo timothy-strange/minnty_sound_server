@@ -1,5 +1,5 @@
 use crate::audio::capture::{CaptureSession, PcmFrame};
-use crate::audio::linux_pulse::PulseManager;
+use crate::audio::backend::PulseManager;
 use crate::control::messages::StreamConfig;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
