@@ -8,6 +8,8 @@ pub const MSG_CONFIG: u8 = 2;
 pub const MSG_KEEPALIVE: u8 = 3;
 pub const MSG_STATUS: u8 = 4;
 pub const MSG_STATUS_REQUEST: u8 = 5;
+pub const MSG_TIME_SYNC_REQUEST: u8 = 6;
+pub const MSG_TIME_SYNC_RESPONSE: u8 = 7;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StreamConfig {
@@ -32,6 +34,7 @@ pub enum ControlMessage {
     KeepAlive,
     Status,
     StatusRequest,
+    TimeSyncRequest { client_send_ms: u64 },
 }
 
 pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
@@ -52,6 +55,16 @@ pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
         MSG_KEEPALIVE => Some(ControlMessage::KeepAlive),
         MSG_STATUS => Some(ControlMessage::Status),
         MSG_STATUS_REQUEST => Some(ControlMessage::StatusRequest),
+        MSG_TIME_SYNC_REQUEST => {
+            if data.len() < 14 {
+                return None;
+            }
+            Some(ControlMessage::TimeSyncRequest {
+                client_send_ms: u64::from_be_bytes([
+                    data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13],
+                ]),
+            })
+        }
         _ => None,
     }
 }
@@ -88,6 +101,21 @@ pub fn build_status_packet(streaming: bool, session_id: u64) -> Bytes {
     buf.put_u8(MSG_STATUS);
     buf.put_u8(u8::from(streaming));
     buf.put_u64(session_id);
+    buf.freeze()
+}
+
+pub fn build_time_sync_response_packet(
+    client_send_ms: u64,
+    server_receive_ms: u64,
+    server_send_ms: u64,
+) -> Bytes {
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 8 + 8 + 8);
+    buf.put_slice(&MAGIC);
+    buf.put_u8(VERSION);
+    buf.put_u8(MSG_TIME_SYNC_RESPONSE);
+    buf.put_u64(client_send_ms);
+    buf.put_u64(server_receive_ms);
+    buf.put_u64(server_send_ms);
     buf.freeze()
 }
 
@@ -131,6 +159,16 @@ mod tests {
         assert!(matches!(
             parse_control_packet(&status_request),
             Some(ControlMessage::StatusRequest)
+        ));
+
+        let mut time_sync_request = Vec::new();
+        time_sync_request.extend_from_slice(&MAGIC);
+        time_sync_request.push(VERSION);
+        time_sync_request.push(MSG_TIME_SYNC_REQUEST);
+        time_sync_request.extend_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        assert!(matches!(
+            parse_control_packet(&time_sync_request),
+            Some(ControlMessage::TimeSyncRequest { client_send_ms }) if client_send_ms == 0x0102_0304_0506_0708
         ));
 
         let mut invalid = Vec::new();
@@ -177,5 +215,17 @@ mod tests {
             bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
         ]);
         assert_eq!(session_id, 0x1122_3344_5566_7788);
+    }
+
+    #[test]
+    fn build_time_sync_response_contains_timestamps() {
+        let packet = build_time_sync_response_packet(10, 20, 30);
+        let bytes = packet.as_ref();
+        assert_eq!(&bytes[0..4], MAGIC.as_slice());
+        assert_eq!(bytes[4], VERSION);
+        assert_eq!(bytes[5], MSG_TIME_SYNC_RESPONSE);
+        assert_eq!(u64::from_be_bytes(bytes[6..14].try_into().unwrap()), 10);
+        assert_eq!(u64::from_be_bytes(bytes[14..22].try_into().unwrap()), 20);
+        assert_eq!(u64::from_be_bytes(bytes[22..30].try_into().unwrap()), 30);
     }
 }

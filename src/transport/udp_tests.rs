@@ -2,7 +2,7 @@
 mod tests {
     use crate::control::messages::{
         DEFAULT_STREAM_CONFIG, MAGIC, MSG_CONFIG, MSG_HELLO, MSG_KEEPALIVE, MSG_STATUS,
-        MSG_STATUS_REQUEST, VERSION,
+        MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE, VERSION,
     };
     use crate::transport::udp::UdpServer;
     use std::net::SocketAddr;
@@ -93,5 +93,45 @@ mod tests {
         let mut buf = [0u8; 256];
         let recv = timeout(Duration::from_millis(200), client.recv_from(&mut buf)).await;
         assert!(recv.is_err(), "unexpected response to unknown KEEPALIVE sender");
+    }
+
+    #[tokio::test]
+    async fn udp_time_sync_request_receives_time_sync_response() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let server = Arc::new(UdpServer::bind(addr, config, 789).await.unwrap());
+        let server_addr = server.local_addr().unwrap();
+
+        let listener = Arc::clone(&server);
+        tokio::spawn(async move {
+            let _ = listener.run_listener().await;
+        });
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let client_send_ms = 0x0102_0304_0506_0708u64;
+        let mut request = Vec::new();
+        request.extend_from_slice(&MAGIC);
+        request.push(VERSION);
+        request.push(MSG_TIME_SYNC_REQUEST);
+        request.extend_from_slice(&client_send_ms.to_be_bytes());
+        client.send_to(&request, server_addr).await.unwrap();
+
+        let mut buf = [0u8; 256];
+        let (len, _) = client.recv_from(&mut buf).await.unwrap();
+        assert_eq!(len, 30);
+        assert_eq!(&buf[0..4], MAGIC.as_slice());
+        assert_eq!(buf[4], VERSION);
+        assert_eq!(buf[5], MSG_TIME_SYNC_RESPONSE);
+        let returned_client_send = u64::from_be_bytes([
+            buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13],
+        ]);
+        let server_receive = u64::from_be_bytes([
+            buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20], buf[21],
+        ]);
+        let server_send = u64::from_be_bytes([
+            buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29],
+        ]);
+        assert_eq!(returned_client_send, client_send_ms);
+        assert!(server_send >= server_receive);
     }
 }

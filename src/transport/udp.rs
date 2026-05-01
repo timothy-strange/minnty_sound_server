@@ -1,11 +1,12 @@
 use crate::control::messages::{
-    ControlMessage, StreamConfig, build_config_packet, build_status_packet, parse_control_packet,
+    ControlMessage, StreamConfig, build_config_packet, build_status_packet,
+    build_time_sync_response_packet, parse_control_packet,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
@@ -55,6 +56,7 @@ impl UdpServer {
         let mut buffer = vec![0u8; 1024];
         loop {
             let (len, addr) = self.socket.recv_from(&mut buffer).await?;
+            let server_receive_ms = current_wall_clock_ms();
             if let Some(message) = parse_control_packet(&buffer[..len]) {
                 match message {
                     ControlMessage::Hello => {
@@ -73,6 +75,14 @@ impl UdpServer {
                         let _ = self.socket.send_to(&packet, addr).await;
                     }
                     ControlMessage::Status => {}
+                    ControlMessage::TimeSyncRequest { client_send_ms } => {
+                        let packet = build_time_sync_response_packet(
+                            client_send_ms,
+                            server_receive_ms,
+                            current_wall_clock_ms(),
+                        );
+                        let _ = self.socket.send_to(&packet, addr).await;
+                    }
                 }
             }
         }
@@ -148,4 +158,11 @@ impl UdpServer {
             client.last_seen = Instant::now();
         }
     }
+}
+
+fn current_wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
