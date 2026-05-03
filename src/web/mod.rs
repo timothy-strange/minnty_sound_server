@@ -8,9 +8,9 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use serde::Serialize;
 #[cfg(feature = "net_impairment_ui")]
 use serde::Deserialize;
+use serde::Serialize;
 use std::{
     net::SocketAddr,
     sync::{
@@ -19,7 +19,9 @@ use std::{
     },
 };
 
-use crate::control::http::{StartStreamRequest, StreamManager, StreamStatusResponse};
+use crate::control::http::{
+    CALIBRATION_STREAM_NAME, StartStreamRequest, StreamManager, StreamStatusResponse,
+};
 use crate::i18n;
 
 #[derive(Clone)]
@@ -80,7 +82,10 @@ pub async fn run(
         .route("/api/stream/status", get(stream_status));
 
     #[cfg(feature = "net_impairment_ui")]
-    let app = app.route("/api/test/network-gap-once", post(api_trigger_network_gap_once));
+    let app = app.route(
+        "/api/test/network-gap-once",
+        post(api_trigger_network_gap_once),
+    );
 
     let app = app.with_state(state);
 
@@ -93,7 +98,7 @@ pub async fn run(
 }
 
 async fn api_levels(State(state): State<AppState>) -> impl IntoResponse {
-    let levels = state
+    let mut levels = state
         .meters
         .iter()
         .map(|m| Level {
@@ -101,6 +106,11 @@ async fn api_levels(State(state): State<AppState>) -> impl IntoResponse {
             peak: f32::from_bits(m.peak.load(Ordering::Relaxed)),
         })
         .collect::<Vec<_>>();
+
+    levels.push(Level {
+        name: CALIBRATION_STREAM_NAME.to_string(),
+        peak: 0.0,
+    });
 
     Json(levels)
 }

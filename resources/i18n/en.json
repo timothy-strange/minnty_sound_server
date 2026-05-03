@@ -50,6 +50,7 @@
       "close": "Close",
       "lines": [
         "You should see your audio outputs listed in the browser UI. Play some audio to see which output is active (the active level meter will move).",
+        "For sync calibration, select \"Calibration Stream\" and click \"Start Stream\". It sends a simple beat through the same streaming path as music.",
         "To stream, select the active output, then click the \"Start Stream\" button.",
         "While streaming, the button will change to \"Stop Stream\", and the level meters will be disabled.",
         "To stop streaming, click the \"Stop Stream\" button. It will toggle back to \"Start Stream\".",

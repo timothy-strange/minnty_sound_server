@@ -6,10 +6,12 @@ use crate::testing::net_impairment::NetImpairmentController;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+
+pub const CALIBRATION_STREAM_NAME: &str = "Calibration Stream";
 
 #[derive(Deserialize)]
 pub struct StartStreamRequest {
@@ -34,8 +36,15 @@ pub struct StreamManager {
 struct StreamRuntime {
     running: bool,
     sink: Option<String>,
+    source: Option<StreamSource>,
     stop_tx: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamSource {
+    Capture,
+    Calibration,
 }
 
 impl StreamManager {
@@ -53,6 +62,7 @@ impl StreamManager {
             state: Mutex::new(StreamRuntime {
                 running: false,
                 sink: None,
+                source: None,
                 stop_tx: None,
                 task: None,
             }),
@@ -65,20 +75,29 @@ impl StreamManager {
             return Err("Stream already running".to_string());
         }
 
-        let receiver = self.audio.start_capture(sink.clone(), self.config).await?;
+        let source = if sink == CALIBRATION_STREAM_NAME {
+            StreamSource::Calibration
+        } else {
+            StreamSource::Capture
+        };
+        let receiver = match source {
+            StreamSource::Capture => self.audio.start_capture(sink.clone(), self.config).await?,
+            StreamSource::Calibration => calibration_stream(self.config),
+        };
         let mut encoder = match OpusEncoder::new(self.config) {
             Ok(encoder) => encoder,
             Err(err) => {
-                let _ = self.audio.stop_capture().await;
+                if source == StreamSource::Capture {
+                    let _ = self.audio.stop_capture().await;
+                }
                 return Err(err.to_string());
             }
         };
         let udp = Arc::clone(&self.udp);
         let impairment = Arc::clone(&self.impairment);
         let (stop_tx, mut stop_rx) = oneshot::channel();
-        let frame_duration = Duration::from_secs_f64(
-            self.config.frame_size as f64 / self.config.sample_rate as f64,
-        );
+        let frame_duration =
+            Duration::from_secs_f64(self.config.frame_size as f64 / self.config.sample_rate as f64);
 
         let task = tokio::spawn(async move {
             stream_loop(
@@ -95,6 +114,7 @@ impl StreamManager {
         self.udp.set_streaming(true);
         state.running = true;
         state.sink = Some(sink);
+        state.source = Some(source);
         state.stop_tx = Some(stop_tx);
         state.task = Some(task);
 
@@ -102,7 +122,7 @@ impl StreamManager {
     }
 
     pub async fn stop(&self) -> Result<(), String> {
-        let task = {
+        let (task, source) = {
             let mut state = self.state.lock().await;
             if !state.running {
                 return Ok(());
@@ -114,7 +134,8 @@ impl StreamManager {
 
             state.running = false;
             state.sink = None;
-            state.task.take()
+            let source = state.source.take();
+            (state.task.take(), source)
         };
 
         if let Some(task) = task {
@@ -127,7 +148,9 @@ impl StreamManager {
             }
         }
 
-        self.audio.stop_capture().await?;
+        if source == Some(StreamSource::Capture) {
+            self.audio.stop_capture().await?;
+        }
         self.udp.set_streaming(false);
 
         Ok(())
@@ -146,6 +169,174 @@ impl StreamManager {
     pub fn trigger_test_gap_once_ms(&self, delay_ms: u64) -> Result<(), String> {
         self.impairment.trigger_gap_once_ms(delay_ms)
     }
+}
+
+fn calibration_stream(config: StreamConfig) -> tokio::sync::mpsc::Receiver<PcmFrame> {
+    let (tx, rx) = tokio::sync::mpsc::channel(config.pcm_queue_depth);
+    tokio::spawn(async move {
+        let frame_duration =
+            Duration::from_secs_f64(config.frame_size as f64 / config.sample_rate as f64);
+        let base_wallclock_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let drum_kit = CalibrationDrumKit::new(config.sample_rate);
+        let start = StdInstant::now();
+        let mut frame_index = 0u64;
+        let mut next_frame_at = Instant::now();
+
+        loop {
+            tokio::time::sleep_until(next_frame_at).await;
+            let timestamp_ms = base_wallclock_ms + start.elapsed().as_millis() as u64;
+            let samples = build_calibration_frame(config, frame_index, &drum_kit);
+            if tx
+                .send(PcmFrame {
+                    timestamp_ms,
+                    samples,
+                })
+                .await
+                .is_err()
+            {
+                break;
+            }
+            frame_index = frame_index.wrapping_add(1);
+            next_frame_at += frame_duration;
+            let now = Instant::now();
+            if next_frame_at < now {
+                next_frame_at = now;
+            }
+        }
+    });
+    rx
+}
+
+struct CalibrationDrumKit {
+    sample_rate: u32,
+    kick: Vec<f64>,
+    snare: Vec<f64>,
+    hat: Vec<f64>,
+}
+
+impl CalibrationDrumKit {
+    fn new(sample_rate: u32) -> Self {
+        Self {
+            sample_rate,
+            kick: generate_kick(sample_rate),
+            snare: generate_snare(sample_rate),
+            hat: generate_hat(sample_rate),
+        }
+    }
+
+    fn sample(&self, instrument: &[f64], offset_frames: u64) -> f64 {
+        instrument.get(offset_frames as usize).copied().unwrap_or(0.0)
+    }
+
+    fn sample_at_hit(&self, instrument: &[f64], position_frames: u64, hit_frames: u64) -> f64 {
+        if position_frames < hit_frames {
+            return 0.0;
+        }
+        self.sample(instrument, position_frames - hit_frames)
+    }
+}
+
+fn build_calibration_frame(
+    config: StreamConfig,
+    frame_index: u64,
+    drum_kit: &CalibrationDrumKit,
+) -> Vec<i16> {
+    const BPM: u64 = 100;
+    let quarter_note_frames = drum_kit.sample_rate as u64 * 60 / BPM;
+    let eighth_note_frames = quarter_note_frames / 2;
+    let bar_frames = quarter_note_frames * 4;
+
+    let channels = config.channels as usize;
+    let mut samples = vec![0i16; config.frame_size * channels];
+    for frame_offset in 0..config.frame_size {
+        let absolute_frame = frame_index * config.frame_size as u64 + frame_offset as u64;
+        let bar_pos_frames = absolute_frame % bar_frames;
+        let eighth_pos_frames = absolute_frame % eighth_note_frames;
+
+        let mut sample = 0.0;
+        sample += drum_kit.sample_at_hit(&drum_kit.kick, bar_pos_frames, 0);
+        sample += drum_kit.sample_at_hit(&drum_kit.kick, bar_pos_frames, quarter_note_frames * 2);
+        sample += drum_kit.sample_at_hit(&drum_kit.snare, bar_pos_frames, quarter_note_frames);
+        sample += drum_kit.sample_at_hit(&drum_kit.snare, bar_pos_frames, quarter_note_frames * 3);
+        sample += drum_kit.sample(&drum_kit.hat, eighth_pos_frames);
+
+        let pcm = (sample.clamp(-1.0, 1.0) * i16::MAX as f64 * 0.75) as i16;
+        for channel in 0..channels {
+            samples[frame_offset * channels + channel] = pcm;
+        }
+    }
+    samples
+}
+
+fn generate_kick(sample_rate: u32) -> Vec<f64> {
+    let len = frames_for_ms(sample_rate, 170);
+    let mut samples = Vec::with_capacity(len);
+    let mut phase = 0.0;
+    for n in 0..len {
+        let t = n as f64 / sample_rate as f64;
+        let progress = n as f64 / len as f64;
+        let pitch = 45.0 + 95.0 * (1.0 - progress).powi(3);
+        phase += std::f64::consts::TAU * pitch / sample_rate as f64;
+        let body = phase.sin() * (-t * 18.0).exp();
+        let click = if n < frames_for_ms(sample_rate, 5) {
+            noise_sample(n as u64) * (1.0 - n as f64 / frames_for_ms(sample_rate, 5) as f64)
+        } else {
+            0.0
+        };
+        samples.push((body * 1.15 + click * 0.28).tanh() * 0.95);
+    }
+    samples
+}
+
+fn generate_snare(sample_rate: u32) -> Vec<f64> {
+    let len = frames_for_ms(sample_rate, 145);
+    let mut samples = Vec::with_capacity(len);
+    for n in 0..len {
+        let t = n as f64 / sample_rate as f64;
+        let noise_env = (-t * 24.0).exp();
+        let body_env = (-t * 18.0).exp();
+        let crack = noise_sample(n as u64) * noise_env;
+        let body = (std::f64::consts::TAU * 205.0 * t).sin() * body_env;
+        let snap = if n < frames_for_ms(sample_rate, 4) {
+            noise_sample((n as u64).wrapping_add(9_000)) * 0.7
+        } else {
+            0.0
+        };
+        samples.push((crack * 0.62 + body * 0.36 + snap).tanh() * 0.72);
+    }
+    samples
+}
+
+fn generate_hat(sample_rate: u32) -> Vec<f64> {
+    let len = frames_for_ms(sample_rate, 70);
+    let mut samples = Vec::with_capacity(len);
+    for n in 0..len {
+        let t = n as f64 / sample_rate as f64;
+        let env = (-t * 65.0).exp();
+        let metallic = (std::f64::consts::TAU * 5_800.0 * t).sin()
+            + (std::f64::consts::TAU * 7_300.0 * t).sin() * 0.7
+            + (std::f64::consts::TAU * 9_200.0 * t).sin() * 0.5;
+        let bright_noise = noise_sample((n as u64).wrapping_add(18_000))
+            - noise_sample((n as u64).wrapping_add(17_999)) * 0.75;
+        samples.push((metallic * 0.18 + bright_noise * 0.82) * env * 0.35);
+    }
+    samples
+}
+
+fn frames_for_ms(sample_rate: u32, ms: u64) -> usize {
+    ((sample_rate as u64 * ms) / 1_000) as usize
+}
+
+fn noise_sample(index: u64) -> f64 {
+    let mut x = index
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    x ^= x >> 33;
+    let value = ((x >> 32) & 0xffff) as f64 / 32768.0 - 1.0;
+    value
 }
 
 async fn stream_loop(
@@ -369,5 +560,29 @@ mod tests {
 
         assert_eq!(audio.start_calls.load(Ordering::SeqCst), 1);
         assert_eq!(audio.stop_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn calibration_stream_does_not_start_capture() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let audio = Arc::new(MockAudio::new());
+        let audio_source: Arc<dyn AudioSource> = audio.clone();
+        let udp = Arc::new(
+            UdpServer::bind(SocketAddr::from(([127, 0, 0, 1], 0)), config, 123)
+                .await
+                .unwrap(),
+        );
+        let impairment = Arc::new(NetImpairmentController::new());
+        let manager = StreamManager::new(audio_source, udp, config, impairment);
+
+        manager.start(CALIBRATION_STREAM_NAME.to_string()).await.unwrap();
+        let status = manager.status().await;
+        assert!(status.running);
+        assert_eq!(status.sink.as_deref(), Some(CALIBRATION_STREAM_NAME));
+
+        manager.stop().await.unwrap();
+
+        assert_eq!(audio.start_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(audio.stop_calls.load(Ordering::SeqCst), 0);
     }
 }

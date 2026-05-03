@@ -430,6 +430,7 @@
     let totalOutputCount = 0;
     let statusFailureCount = 0;
     const OFFLINE_THRESHOLD = 3;
+    const CALIBRATION_STREAM_NAME = "Calibration Stream";
     let lastFocusedBeforeHelp = null;
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
@@ -849,9 +850,9 @@
         const fetchedData = await res.json();
         const data = simulateNoOutputs ? [] : fetchedData;
         totalOutputCount = data.length;
-        activeOutputCount = data.filter((s) => s.peak > ACTIVE_OUTPUT_THRESHOLD).length;
+        activeOutputCount = data.filter((s) => s.name === CALIBRATION_STREAM_NAME || s.peak > ACTIVE_OUTPUT_THRESHOLD).length;
         selectedSinkIsActive = selectedSink
-          ? data.some((s) => s.name === selectedSink && s.peak > ACTIVE_OUTPUT_THRESHOLD)
+          ? data.some((s) => s.name === selectedSink && (s.name === CALIBRATION_STREAM_NAME || s.peak > ACTIVE_OUTPUT_THRESHOLD))
           : false;
         setOutputRowsVisible(totalOutputCount > 0);
         updateStartButton();
