@@ -24,6 +24,9 @@
       --topbar-border: rgba(148, 163, 184, 0.2);
       --help-border: rgba(148, 163, 184, 0.3);
       --help-hover: #dbeafe;
+      --deactivated-border: rgba(248, 113, 113, 0.45);
+      --deactivated-bg: rgba(127, 29, 29, 0.35);
+      --deactivated-fg: #fecaca;
     }
 
     [data-theme="light"] {
@@ -43,6 +46,9 @@
       --topbar-border: rgba(100, 116, 139, 0.3);
       --help-border: rgba(100, 116, 139, 0.3);
       --help-hover: #1d4ed8;
+      --deactivated-border: rgba(185, 28, 28, 0.6);
+      --deactivated-bg: rgba(254, 226, 226, 1);
+      --deactivated-fg: #7f1d1d;
     }
 
     body {
@@ -323,11 +329,11 @@
 
     .deactivated-panel {
       display: none;
-      border: 1px solid rgba(248, 113, 113, 0.45);
-      background: rgba(127, 29, 29, 0.35);
+      border: 1px solid var(--deactivated-border);
+      background: var(--deactivated-bg);
       border-radius: 8px;
       padding: 12px;
-      color: #fecaca;
+      color: var(--deactivated-fg);
     }
 
     .deactivated-panel.open {
@@ -342,7 +348,7 @@
 
     .deactivated-body {
       font-size: 13px;
-      color: #fecaca;
+      color: var(--deactivated-fg);
     }
 
     .row {
