@@ -280,7 +280,7 @@ fn generate_kick(sample_rate: u32) -> Vec<f64> {
         let progress = n as f64 / len as f64;
         let pitch = 45.0 + 95.0 * (1.0 - progress).powi(3);
         phase += std::f64::consts::TAU * pitch / sample_rate as f64;
-        let body = phase.sin() * (-t * 18.0).exp();
+        let body = phase.sin() * (-t * 30.0).exp();
         let click = if n < frames_for_ms(sample_rate, 5) {
             noise_sample(n as u64) * (1.0 - n as f64 / frames_for_ms(sample_rate, 5) as f64)
         } else {
@@ -292,36 +292,93 @@ fn generate_kick(sample_rate: u32) -> Vec<f64> {
 }
 
 fn generate_snare(sample_rate: u32) -> Vec<f64> {
-    let len = frames_for_ms(sample_rate, 145);
+    eprintln!("SNARE v8");
+    let len = frames_for_ms(sample_rate, 120);
+    let fade_start = frames_for_ms(sample_rate, 100);
     let mut samples = Vec::with_capacity(len);
+
+    // Body: two fixed-frequency bridged-T resonators (808 circuit: ~200 Hz + ~390 Hz)
+    let mut phase1 = 0.0f64;
+    let mut phase2 = 0.0f64;
+
+    // Snare wire: stateful PRNG for true white noise
+    let mut rng: u64 = 0xDEADBEEF13371337;
+
+    // 2-pole Sallen-Key HPF at 2500 Hz
+    let hp_a = 1.0 / (1.0 + std::f64::consts::TAU * 2500.0 / sample_rate as f64);
+    let mut hp1_px = 0.0f64;
+    let mut hp1_py = 0.0f64;
+    let mut hp2_px = 0.0f64;
+    let mut hp2_py = 0.0f64;
+
     for n in 0..len {
         let t = n as f64 / sample_rate as f64;
-        let noise_env = (-t * 24.0).exp();
-        let body_env = (-t * 18.0).exp();
-        let crack = noise_sample(n as u64) * noise_env;
-        let body = (std::f64::consts::TAU * 205.0 * t).sin() * body_env;
-        let snap = if n < frames_for_ms(sample_rate, 4) {
-            noise_sample((n as u64).wrapping_add(9_000)) * 0.7
+
+        // Body: fast decay for a tight thump
+        phase1 += std::f64::consts::TAU * 200.0 / sample_rate as f64;
+        phase2 += std::f64::consts::TAU * 390.0 / sample_rate as f64;
+        let body_env = (-t * 55.0).exp();
+        let body = (phase1.sin() * 0.6 + phase2.sin() * 0.4) * body_env;
+
+        // Snare wire: true white noise → VCA → 2-pole HPF at 2500 Hz
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let raw = (rng >> 32) as f64 / 2147483648.0 - 1.0;
+        let wire_env = (-t * 45.0).exp();
+        let shaped = raw * wire_env;
+        let hp1 = hp_a * (hp1_py + shaped - hp1_px);
+        hp1_px = shaped;
+        hp1_py = hp1;
+        let hp2 = hp_a * (hp2_py + hp1 - hp2_px);
+        hp2_px = hp1;
+        hp2_py = hp2;
+
+        // Attack crack: extra noise burst in the first few ms
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let crack = (rng >> 32) as f64 / 2147483648.0 - 1.0;
+        let crack_env = (-t * 200.0).exp();
+
+        // Hard gate: linear fade over the last 20ms to cut cleanly without a click
+        let gate = if n < fade_start {
+            1.0
         } else {
-            0.0
+            1.0 - (n - fade_start) as f64 / (len - fade_start) as f64
         };
-        samples.push((crack * 0.62 + body * 0.36 + snap).tanh() * 0.72);
+
+        // Drive harder into tanh for more punch and grit
+        samples.push((body * 0.50 + hp2 * 1.40 + crack * crack_env * 0.70).tanh() * 0.85 * gate);
     }
     samples
 }
 
 fn generate_hat(sample_rate: u32) -> Vec<f64> {
-    let len = frames_for_ms(sample_rate, 70);
+    let len = frames_for_ms(sample_rate, 60);
     let mut samples = Vec::with_capacity(len);
+
+    // True white noise source
+    let mut rng: u64 = 0xCAFEBABE87654321;
+
+    // 2-pole HPF at 6000 Hz — hi-hat lives almost entirely above this
+    let hp_a = 1.0 / (1.0 + std::f64::consts::TAU * 6000.0 / sample_rate as f64);
+    let mut hp1_px = 0.0f64;
+    let mut hp1_py = 0.0f64;
+    let mut hp2_px = 0.0f64;
+    let mut hp2_py = 0.0f64;
+
     for n in 0..len {
         let t = n as f64 / sample_rate as f64;
-        let env = (-t * 65.0).exp();
-        let metallic = (std::f64::consts::TAU * 5_800.0 * t).sin()
-            + (std::f64::consts::TAU * 7_300.0 * t).sin() * 0.7
-            + (std::f64::consts::TAU * 9_200.0 * t).sin() * 0.5;
-        let bright_noise = noise_sample((n as u64).wrapping_add(18_000))
-            - noise_sample((n as u64).wrapping_add(17_999)) * 0.75;
-        samples.push((metallic * 0.18 + bright_noise * 0.82) * env * 0.35);
+
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let raw = (rng >> 32) as f64 / 2147483648.0 - 1.0;
+
+        let hp1 = hp_a * (hp1_py + raw - hp1_px);
+        hp1_px = raw;
+        hp1_py = hp1;
+        let hp2 = hp_a * (hp2_py + hp1 - hp2_px);
+        hp2_px = hp1;
+        hp2_py = hp2;
+
+        let env = (-t * 80.0).exp();
+        samples.push(hp2 * env * 0.55);
     }
     samples
 }
