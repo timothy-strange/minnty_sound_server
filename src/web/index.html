@@ -16,6 +16,33 @@
       --select-bg: rgba(34, 197, 94, 0.18);
       --select-border: #22c55e;
       --focus-border: #38bdf8;
+      --btn-color: #022c22;
+      --panel-bg: #111827;
+      --test-btn-bg: #1f2937;
+      --test-panel-bg: rgba(15, 23, 42, 0.35);
+      --modal-overlay: rgba(2, 6, 23, 0.72);
+      --topbar-border: rgba(148, 163, 184, 0.2);
+      --help-border: rgba(148, 163, 184, 0.3);
+      --help-hover: #dbeafe;
+    }
+
+    [data-theme="light"] {
+      --bg: #f1f5f9;
+      --fg: #1e293b;
+      --muted: #475569;
+      --bar-bg: #cbd5e1;
+      --bar-fill: #16a34a;
+      --select-bg: rgba(22, 163, 74, 0.15);
+      --select-border: #16a34a;
+      --focus-border: #0284c7;
+      --btn-color: #f0fdf4;
+      --panel-bg: #ffffff;
+      --test-btn-bg: #e2e8f0;
+      --test-panel-bg: rgba(241, 245, 249, 0.8);
+      --modal-overlay: rgba(15, 23, 42, 0.5);
+      --topbar-border: rgba(100, 116, 139, 0.3);
+      --help-border: rgba(100, 116, 139, 0.3);
+      --help-hover: #1d4ed8;
     }
 
     body {
@@ -69,7 +96,66 @@
       gap: 12px;
       min-height: 36px;
       padding-bottom: 4px;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      border-bottom: 1px solid var(--topbar-border);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .theme-toggle {
+      position: relative;
+      display: flex;
+      border: 1px solid var(--help-border);
+      border-radius: 20px;
+      overflow: hidden;
+      cursor: pointer;
+      background: var(--bar-bg);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .theme-toggle:focus-visible {
+      outline: 2px solid var(--focus-border);
+      outline-offset: 2px;
+    }
+
+    .theme-option {
+      position: relative;
+      z-index: 1;
+      padding: 4px 10px;
+      font-size: 13px;
+      color: var(--muted);
+      transition: color 0.2s;
+      white-space: nowrap;
+    }
+
+    .theme-icon {
+      font-size: 17px;
+      line-height: 1;
+      vertical-align: middle;
+    }
+
+    [data-theme="light"] .theme-option[data-value="light"],
+    [data-theme="dark"] .theme-option[data-value="dark"] {
+      color: var(--fg);
+    }
+
+    .theme-slider {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 50%;
+      height: 100%;
+      background: var(--panel-bg);
+      border-radius: 20px;
+      transition: transform 0.22s ease;
+    }
+
+    [data-theme="dark"] .theme-slider {
+      transform: translateX(100%);
     }
 
     .help-link {
@@ -84,7 +170,7 @@
     }
 
     .help-link:hover {
-      color: #dbeafe;
+      color: var(--help-hover);
     }
 
     .outputs-title {
@@ -194,7 +280,7 @@
       border: 1px solid rgba(148, 163, 184, 0.25);
       border-radius: 8px;
       padding: 10px;
-      background: rgba(15, 23, 42, 0.35);
+      background: var(--test-panel-bg);
     }
 
     .test-panel.open {
@@ -218,7 +304,7 @@
     }
 
     .test-delay-btn {
-      background: #1f2937;
+      background: var(--test-btn-bg);
       color: var(--fg);
       border: 1px solid rgba(148, 163, 184, 0.35);
       border-radius: 6px;
@@ -276,13 +362,19 @@
       border-radius: 6px;
       border: none;
       background: #22c55e;
-      color: #022c22;
+      color: var(--btn-color);
       cursor: pointer;
     }
 
     button:disabled {
       opacity: 0.4;
       cursor: default;
+    }
+
+    [data-theme="light"] #startBtn:disabled {
+      opacity: 1;
+      background: #4ade80;
+      color: #14532d;
     }
 
     button:focus-visible {
@@ -297,7 +389,7 @@
       align-items: center;
       justify-content: center;
       padding: 16px;
-      background: rgba(2, 6, 23, 0.72);
+      background: var(--modal-overlay);
     }
 
     .help-modal.open {
@@ -309,8 +401,8 @@
       max-height: 80vh;
       overflow: auto;
       border-radius: 10px;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: #111827;
+      border: 1px solid var(--help-border);
+      background: var(--panel-bg);
       padding: 16px;
       box-shadow: 0 20px 50px rgba(2, 6, 23, 0.6);
     }
@@ -350,7 +442,14 @@
 <body>
   <div class="topbar">
     <h1 id="pageTitle"></h1>
-    <button id="helpBtn" class="help-link"></button>
+    <div class="topbar-right">
+      <div id="themeToggle" class="theme-toggle" role="button" tabindex="0" aria-label="Toggle light/dark mode">
+        <span class="theme-option" data-value="light">Light <span class="theme-icon">☀</span></span>
+        <span class="theme-option" data-value="dark">Dark <span class="theme-icon">☽</span></span>
+        <div class="theme-slider"></div>
+      </div>
+      <button id="helpBtn" class="help-link"></button>
+    </div>
   </div>
 
   <div class="layout">
@@ -395,6 +494,7 @@
   <script>
     const container = document.getElementById("sinks");
     const startBtn = document.getElementById("startBtn");
+    const themeToggle = document.getElementById("themeToggle");
     const helpBtn = document.getElementById("helpBtn");
     const helpModal = document.getElementById("helpModal");
     const helpClose = document.getElementById("helpClose");
@@ -439,6 +539,31 @@
     let levelsTimer = null;
     let statusTimer = null;
     const simulateNoOutputs = new URLSearchParams(window.location.search).get("simulate_no_outputs") === "1";
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      themeToggle.setAttribute("aria-label", theme === "light" ? "Switch to dark mode" : "Switch to light mode");
+      try { localStorage.setItem("minnty_theme", theme); } catch (_) {}
+    }
+
+    function initTheme() {
+      let saved;
+      try { saved = localStorage.getItem("minnty_theme"); } catch (_) {}
+      const preferred = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      applyTheme(preferred);
+    }
+
+    themeToggle.addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme");
+      applyTheme(current === "light" ? "dark" : "light");
+    });
+
+    themeToggle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        themeToggle.click();
+      }
+    });
     const ACTIVE_OUTPUT_THRESHOLD = 0.01;
 
     function t(key, fallback = "") {
@@ -909,6 +1034,7 @@
 
     // Ensure reload starts with no selection and disabled button.
     async function init() {
+      initTheme();
       await loadI18n();
       await loadFeatures();
       initTabCoordination();
