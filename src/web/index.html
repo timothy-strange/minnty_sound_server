@@ -442,6 +442,36 @@
       font-size: 14px;
       white-space: pre-wrap;
     }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+    }
+
+    .settings-label {
+      font-size: 14px;
+      color: var(--fg);
+    }
+
+    .settings-slider {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 50%;
+      height: 100%;
+      background: var(--panel-bg);
+      border-radius: 20px;
+      transition: transform 0.22s ease;
+    }
+
+    .settings-note {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
   </style>
 </head>
 
@@ -454,6 +484,7 @@
         <span class="theme-option" data-value="dark">Dark <span class="theme-icon">☽</span></span>
         <div class="theme-slider"></div>
       </div>
+      <button id="settingsBtn" class="help-link" aria-label="Settings">⚙</button>
       <button id="helpBtn" class="help-link"></button>
     </div>
   </div>
@@ -497,10 +528,36 @@
     </div>
   </div>
 
+  <div id="settingsModal" class="help-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="help-panel" style="max-width: 400px;">
+      <div class="help-title-row">
+        <h2 id="settingsTitle" class="help-title"></h2>
+        <button id="settingsClose" class="help-close"></button>
+      </div>
+      <div class="settings-row">
+        <span id="settingsFrameDurationLabel" class="settings-label"></span>
+        <div id="frameDurationToggle" class="theme-toggle" role="group" aria-label="Frame duration">
+          <span class="theme-option" data-value="10" tabindex="0" role="radio"></span>
+          <span class="theme-option" data-value="20" tabindex="0" role="radio"></span>
+          <div class="settings-slider"></div>
+        </div>
+      </div>
+      <p id="settingsFrameDurationNote" class="settings-note"></p>
+    </div>
+  </div>
+
   <script>
     const container = document.getElementById("sinks");
     const startBtn = document.getElementById("startBtn");
     const themeToggle = document.getElementById("themeToggle");
+    const settingsBtn = document.getElementById("settingsBtn");
+    const settingsModal = document.getElementById("settingsModal");
+    const settingsClose = document.getElementById("settingsClose");
+    const settingsTitle = document.getElementById("settingsTitle");
+    const settingsFrameDurationLabel = document.getElementById("settingsFrameDurationLabel");
+    const settingsFrameDurationNote = document.getElementById("settingsFrameDurationNote");
+    const frameDurationToggle = document.getElementById("frameDurationToggle");
+    const frameDurationSlider = frameDurationToggle.querySelector(".settings-slider");
     const helpBtn = document.getElementById("helpBtn");
     const helpModal = document.getElementById("helpModal");
     const helpClose = document.getElementById("helpClose");
@@ -538,6 +595,8 @@
     const OFFLINE_THRESHOLD = 3;
     const CALIBRATION_STREAM_NAME = "Calibration Stream";
     let lastFocusedBeforeHelp = null;
+    let lastFocusedBeforeSettings = null;
+    let currentFrameDurationMs = 10;
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
     const tabChannelName = "minnty_ui_tabs";
@@ -582,6 +641,53 @@
         node = node[part];
       }
       return typeof node === "string" ? node : fallback;
+    }
+
+    function setFrameDurationUi(ms) {
+      currentFrameDurationMs = ms;
+      frameDurationSlider.style.transform = ms === 10 ? "translateX(0%)" : "translateX(100%)";
+      frameDurationToggle.querySelectorAll(".theme-option").forEach(opt => {
+        opt.style.color = parseInt(opt.dataset.value) === ms ? "var(--fg)" : "var(--muted)";
+      });
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setFrameDurationUi(data.frame_duration_ms);
+      } catch (_) {}
+    }
+
+    async function setFrameDuration(ms) {
+      if (ms === currentFrameDurationMs) return;
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frame_duration_ms: ms }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setFrameDurationUi(data.frame_duration_ms);
+      } catch (_) {}
+    }
+
+    function openSettings() {
+      lastFocusedBeforeSettings = document.activeElement;
+      settingsModal.classList.add("open");
+      settingsClose.focus();
+      loadSettings();
+    }
+
+    function closeSettings() {
+      settingsModal.classList.remove("open");
+      if (lastFocusedBeforeSettings && typeof lastFocusedBeforeSettings.focus === "function") {
+        lastFocusedBeforeSettings.focus();
+      } else {
+        settingsBtn.focus();
+      }
     }
 
     function openHelp() {
@@ -654,6 +760,14 @@
       const title = t("web.title");
       document.title = title;
       pageTitle.textContent = title;
+      settingsTitle.textContent = t("web.settings.title");
+      settingsClose.textContent = t("web.settings.close");
+      settingsFrameDurationLabel.textContent = t("web.settings.frame_duration_label");
+      settingsFrameDurationNote.textContent = t("web.settings.frame_duration_note");
+      const opt10 = frameDurationToggle.querySelector(".theme-option[data-value='10']");
+      const opt20 = frameDurationToggle.querySelector(".theme-option[data-value='20']");
+      if (opt10) opt10.textContent = t("web.settings.frame_duration_10ms");
+      if (opt20) opt20.textContent = t("web.settings.frame_duration_20ms");
       helpBtn.textContent = t("web.buttons.help");
       helpTitle.textContent = t("web.help.title");
       helpClose.textContent = t("web.help.close");
@@ -949,12 +1063,39 @@
     document.addEventListener("keydown", consumeLeftRight, { capture: true });
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && helpModal.classList.contains("open")) {
-        e.preventDefault();
-        closeHelp();
+      if (e.key === "Escape") {
+        if (settingsModal.classList.contains("open")) {
+          e.preventDefault();
+          closeSettings();
+        } else if (helpModal.classList.contains("open")) {
+          e.preventDefault();
+          closeHelp();
+        }
       }
     });
     helpModal.addEventListener("keydown", trapHelpFocus);
+
+    settingsBtn.addEventListener("click", openSettings);
+    settingsClose.addEventListener("click", closeSettings);
+    settingsModal.addEventListener("click", (e) => {
+      if (e.target === settingsModal) closeSettings();
+    });
+    frameDurationToggle.addEventListener("click", (e) => {
+      const opt = e.target.closest(".theme-option");
+      if (!opt) return;
+      const ms = parseInt(opt.dataset.value);
+      if (ms === 10 || ms === 20) setFrameDuration(ms);
+    });
+    frameDurationToggle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const opt = e.target.closest(".theme-option");
+        if (opt) {
+          const ms = parseInt(opt.dataset.value);
+          if (ms === 10 || ms === 20) setFrameDuration(ms);
+        }
+      }
+    });
 
     helpBtn.addEventListener("click", openHelp);
     helpClose.addEventListener("click", closeHelp);

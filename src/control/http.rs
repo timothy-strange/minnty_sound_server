@@ -6,6 +6,7 @@ use crate::testing::net_impairment::NetImpairmentController;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
@@ -29,6 +30,7 @@ pub struct StreamManager {
     audio: Arc<dyn AudioSource>,
     udp: Arc<UdpServer>,
     config: StreamConfig,
+    frame_size: AtomicUsize,
     impairment: Arc<NetImpairmentController>,
     state: Mutex<StreamRuntime>,
 }
@@ -57,6 +59,7 @@ impl StreamManager {
         Self {
             audio,
             udp,
+            frame_size: AtomicUsize::new(config.frame_size),
             config,
             impairment,
             state: Mutex::new(StreamRuntime {
@@ -80,11 +83,13 @@ impl StreamManager {
         } else {
             StreamSource::Capture
         };
+        let frame_size = self.frame_size.load(Ordering::Relaxed);
+        let effective_config = StreamConfig { frame_size, ..self.config };
         let receiver = match source {
-            StreamSource::Capture => self.audio.start_capture(sink.clone(), self.config).await?,
-            StreamSource::Calibration => calibration_stream(self.config),
+            StreamSource::Capture => self.audio.start_capture(sink.clone(), effective_config).await?,
+            StreamSource::Calibration => calibration_stream(effective_config),
         };
-        let mut encoder = match OpusEncoder::new(self.config) {
+        let mut encoder = match OpusEncoder::new(effective_config) {
             Ok(encoder) => encoder,
             Err(err) => {
                 if source == StreamSource::Capture {
@@ -97,7 +102,7 @@ impl StreamManager {
         let impairment = Arc::clone(&self.impairment);
         let (stop_tx, mut stop_rx) = oneshot::channel();
         let frame_duration =
-            Duration::from_secs_f64(self.config.frame_size as f64 / self.config.sample_rate as f64);
+            Duration::from_secs_f64(effective_config.frame_size as f64 / effective_config.sample_rate as f64);
 
         let task = tokio::spawn(async move {
             stream_loop(
@@ -153,6 +158,20 @@ impl StreamManager {
         }
         self.udp.set_streaming(false);
 
+        Ok(())
+    }
+
+    pub fn get_frame_duration_ms(&self) -> u32 {
+        let fs = self.frame_size.load(Ordering::Relaxed);
+        (fs * 1000 / self.config.sample_rate as usize) as u32
+    }
+
+    pub fn set_frame_duration_ms(&self, ms: u32) -> Result<(), String> {
+        if ms != 10 && ms != 20 {
+            return Err(format!("Unsupported frame duration: {}ms. Must be 10 or 20.", ms));
+        }
+        let frame_size = ms as usize * self.config.sample_rate as usize / 1000;
+        self.frame_size.store(frame_size, Ordering::Relaxed);
         Ok(())
     }
 

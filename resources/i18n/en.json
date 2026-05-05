@@ -45,6 +45,14 @@
       "offline_title": "Minnty is not running.",
       "offline_body": "Relaunch Minnty from the launcher icon."
     },
+    "settings": {
+      "title": "Settings",
+      "close": "Close",
+      "frame_duration_label": "Frame Duration",
+      "frame_duration_10ms": "10 ms",
+      "frame_duration_20ms": "20 ms",
+      "frame_duration_note": "Takes effect on the next stream start."
+    },
     "help": {
       "title": "Instructions",
       "close": "Close",

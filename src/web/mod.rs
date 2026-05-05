@@ -8,9 +8,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-#[cfg(feature = "net_impairment_ui")]
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
     sync::{
@@ -58,6 +56,16 @@ struct TriggerGapRequest {
     delay_ms: u64,
 }
 
+#[derive(Serialize)]
+struct SettingsResponse {
+    frame_duration_ms: u32,
+}
+
+#[derive(Deserialize)]
+struct SetSettingsRequest {
+    frame_duration_ms: u32,
+}
+
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
@@ -79,7 +87,8 @@ pub async fn run(
         .route("/api/levels", get(api_levels))
         .route("/api/stream/start", post(start_stream))
         .route("/api/stream/stop", post(stop_stream))
-        .route("/api/stream/status", get(stream_status));
+        .route("/api/stream/status", get(stream_status))
+        .route("/api/settings", get(get_settings).post(set_settings));
 
     #[cfg(feature = "net_impairment_ui")]
     let app = app.route(
@@ -171,6 +180,27 @@ async fn stop_stream(
 async fn stream_status(State(state): State<AppState>) -> impl IntoResponse {
     let status: StreamStatusResponse = state.stream.status().await;
     (StatusCode::OK, Json(status))
+}
+
+async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
+    Json(SettingsResponse {
+        frame_duration_ms: state.stream.get_frame_duration_ms(),
+    })
+}
+
+async fn set_settings(
+    State(state): State<AppState>,
+    Json(payload): Json<SetSettingsRequest>,
+) -> Result<(StatusCode, Json<SettingsResponse>), (StatusCode, Json<ErrorResponse>)> {
+    match state.stream.set_frame_duration_ms(payload.frame_duration_ms) {
+        Ok(()) => Ok((
+            StatusCode::OK,
+            Json(SettingsResponse {
+                frame_duration_ms: state.stream.get_frame_duration_ms(),
+            }),
+        )),
+        Err(err) => Err(error_response(StatusCode::BAD_REQUEST, err)),
+    }
 }
 
 fn error_response(status: StatusCode, message: String) -> (StatusCode, Json<ErrorResponse>) {

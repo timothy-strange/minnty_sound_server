@@ -24,7 +24,7 @@ pub const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig {
     udp_port: 40110,
     sample_rate: 48_000,
     channels: 2,
-    frame_size: 960,
+    frame_size: 480,
     pcm_queue_depth: 64,
 };
 
