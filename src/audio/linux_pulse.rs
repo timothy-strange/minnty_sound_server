@@ -257,11 +257,6 @@ impl PulseManager {
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_flag_worker = Arc::clone(&stop_flag);
-        let capture_start = Instant::now();
-        let base_wallclock_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
 
         let worker = std::thread::spawn(move || {
             const MAX_WORKER_FRAMES_PER_CYCLE: usize = 3;
@@ -306,8 +301,10 @@ impl PulseManager {
                 {
                     let frame_samples_vec: Vec<i16> =
                         pending_samples.drain(..frame_samples).collect();
-                    let timestamp_ms =
-                        base_wallclock_ms + capture_start.elapsed().as_millis() as u64;
+                    let timestamp_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
                     let frame = PcmFrame {
                         timestamp_ms,
                         samples: frame_samples_vec,

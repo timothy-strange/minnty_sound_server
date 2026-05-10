@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use wasapi::{Device, DeviceCollection, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat, initialize_mta};
@@ -136,12 +136,6 @@ fn capture_worker(
     let blockalign = desired_format.get_blockalign() as usize;
     let frame_bytes = blockalign * config.frame_size;
     let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(frame_bytes * 4 + buffer_frame_count as usize * blockalign);
-    let base_wallclock_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let capture_start = Instant::now();
-
     audio_client.start_stream()?;
 
     while !stop_flag.load(Ordering::Acquire) {
@@ -154,7 +148,10 @@ fn capture_worker(
             }
             let samples = float_bytes_to_i16_samples(&chunk);
             let frame = PcmFrame {
-                timestamp_ms: base_wallclock_ms + capture_start.elapsed().as_millis() as u64,
+                timestamp_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
                 samples,
             };
 
