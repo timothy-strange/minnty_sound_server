@@ -40,6 +40,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _ = udp_listener.run_listener().await;
     });
+    Arc::clone(&udp_server).start_metadata_broadcast();
 
     let audio_source: Arc<dyn AudioSource> = Arc::new(audio_controller);
     let impairment = Arc::new(NetImpairmentController::new());

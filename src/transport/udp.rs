@@ -1,7 +1,9 @@
 use crate::control::messages::{
-    ControlMessage, MediaCommand, StreamConfig, build_config_packet, build_media_control_packet,
-    build_status_packet, build_time_sync_response_packet, parse_control_packet,
+    ControlMessage, MediaCommand, NowPlayingMetadata, PlaybackStatus, StreamConfig,
+    build_config_packet, build_media_control_packet, build_now_playing_packet, build_status_packet,
+    build_time_sync_response_packet, parse_control_packet,
 };
+use bytes::Bytes;
 use crate::media_control::{MediaController, PlatformMediaController};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -10,8 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
+const METADATA_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 struct ClientInfo {
     last_seen: Instant,
@@ -31,6 +35,7 @@ pub struct UdpServer {
     streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
     media_controller: Arc<dyn MediaController>,
+    latest_metadata_packet: Arc<Mutex<Option<Bytes>>>,
 }
 
 impl UdpServer {
@@ -67,6 +72,7 @@ impl UdpServer {
                 last_summary: Instant::now(),
             })),
             media_controller,
+            latest_metadata_packet: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -79,8 +85,10 @@ impl UdpServer {
                 match message {
                     ControlMessage::Hello => {
                         self.register_playback_client(addr).await;
-                        let packet = build_config_packet(self.config);
-                        let _ = self.socket.send_to(&packet, addr).await;
+                        let _ = self.socket.send_to(&build_config_packet(self.config), addr).await;
+                        if let Some(packet) = self.latest_metadata_packet.lock().await.clone() {
+                            let _ = self.socket.send_to(&packet, addr).await;
+                        }
                     }
                     ControlMessage::KeepAlive => {
                         self.refresh_playback_client(addr).await;
@@ -107,6 +115,42 @@ impl UdpServer {
                 }
             }
         }
+    }
+
+    pub fn start_metadata_broadcast(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let mut sequence = 0u64;
+            let mut last_metadata: Option<NowPlayingMetadata> = None;
+            loop {
+                sleep(METADATA_POLL_INTERVAL).await;
+                let controller = Arc::clone(&self.media_controller);
+                let metadata = tokio::task::spawn_blocking(move || controller.now_playing())
+                    .await
+                    .unwrap_or(None);
+                if metadata == last_metadata {
+                    continue;
+                }
+                sequence = sequence.wrapping_add(1);
+                let packet_metadata = metadata.clone().unwrap_or(NowPlayingMetadata {
+                    artist: String::new(),
+                    title: String::new(),
+                    playback_status: PlaybackStatus::Unknown,
+                });
+                let packet = build_now_playing_packet(sequence, &packet_metadata);
+                *self.latest_metadata_packet.lock().await = Some(packet.clone());
+                let (sent, errors) = self.send_packet_to_clients(&packet).await;
+                crate::log_info!(
+                    "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} clients={} sendErrors={}",
+                    sequence,
+                    packet_metadata.artist,
+                    packet_metadata.title,
+                    packet_metadata.playback_status,
+                    sent,
+                    errors
+                );
+                last_metadata = metadata;
+            }
+        });
     }
 
     #[cfg(test)]
@@ -185,6 +229,15 @@ impl UdpServer {
 
     async fn send_to_clients_except(&self, packet: &[u8], excluded: SocketAddr) -> (usize, u64) {
         let addresses = self.active_client_addresses(Some(excluded)).await;
+        self.send_packet_to_addresses(packet, addresses).await
+    }
+
+    async fn send_packet_to_clients(&self, packet: &[u8]) -> (usize, u64) {
+        let addresses = self.active_client_addresses(None).await;
+        self.send_packet_to_addresses(packet, addresses).await
+    }
+
+    async fn send_packet_to_addresses(&self, packet: &[u8], addresses: Vec<SocketAddr>) -> (usize, u64) {
         let forwarded = addresses.len();
         let mut send_errors = 0u64;
         for addr in addresses {

@@ -11,6 +11,7 @@ pub const MSG_STATUS_REQUEST: u8 = 5;
 pub const MSG_TIME_SYNC_REQUEST: u8 = 6;
 pub const MSG_TIME_SYNC_RESPONSE: u8 = 7;
 pub const MSG_MEDIA_CONTROL: u8 = 8;
+pub const MSG_NOW_PLAYING: u8 = 9;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MediaCommand {
@@ -64,6 +65,27 @@ pub struct StreamConfig {
     pub channels: u8,
     pub frame_size: usize,
     pub pcm_queue_depth: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlaybackStatus {
+    Unknown = 0,
+    Playing = 1,
+    Paused = 2,
+    Stopped = 3,
+}
+
+impl PlaybackStatus {
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NowPlayingMetadata {
+    pub artist: String,
+    pub title: String,
+    pub playback_status: PlaybackStatus,
 }
 
 pub const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig {
@@ -134,6 +156,24 @@ pub fn build_media_control_packet(command: MediaCommand, argument: i64) -> Bytes
     buf.put_u8(MSG_MEDIA_CONTROL);
     buf.put_u8(command.code());
     buf.put_i64(argument);
+    buf.freeze()
+}
+
+pub fn build_now_playing_packet(sequence: u64, metadata: &NowPlayingMetadata) -> Bytes {
+    let artist = metadata.artist.as_bytes();
+    let title = metadata.title.as_bytes();
+    let artist_len = artist.len().min(u16::MAX as usize);
+    let title_len = title.len().min(u16::MAX as usize);
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 8 + 1 + 2 + 2 + artist_len + title_len);
+    buf.put_slice(&MAGIC);
+    buf.put_u8(VERSION);
+    buf.put_u8(MSG_NOW_PLAYING);
+    buf.put_u64(sequence);
+    buf.put_u8(metadata.playback_status.code());
+    buf.put_u16(artist_len as u16);
+    buf.put_u16(title_len as u16);
+    buf.put_slice(&artist[..artist_len]);
+    buf.put_slice(&title[..title_len]);
     buf.freeze()
 }
 
@@ -312,5 +352,27 @@ mod tests {
         assert_eq!(bytes[5], MSG_MEDIA_CONTROL);
         assert_eq!(bytes[6], MediaCommand::VolumeDown.code());
         assert_eq!(i64::from_be_bytes(bytes[7..15].try_into().unwrap()), -1);
+    }
+
+    #[test]
+    fn build_now_playing_packet_contains_metadata() {
+        let packet = build_now_playing_packet(
+            42,
+            &NowPlayingMetadata {
+                artist: "Artist".to_string(),
+                title: "Title".to_string(),
+                playback_status: PlaybackStatus::Playing,
+            },
+        );
+        let bytes = packet.as_ref();
+        assert_eq!(&bytes[0..4], MAGIC.as_slice());
+        assert_eq!(bytes[4], VERSION);
+        assert_eq!(bytes[5], MSG_NOW_PLAYING);
+        assert_eq!(u64::from_be_bytes(bytes[6..14].try_into().unwrap()), 42);
+        assert_eq!(bytes[14], PlaybackStatus::Playing.code());
+        assert_eq!(u16::from_be_bytes(bytes[15..17].try_into().unwrap()), 6);
+        assert_eq!(u16::from_be_bytes(bytes[17..19].try_into().unwrap()), 5);
+        assert_eq!(&bytes[19..25], b"Artist");
+        assert_eq!(&bytes[25..30], b"Title");
     }
 }

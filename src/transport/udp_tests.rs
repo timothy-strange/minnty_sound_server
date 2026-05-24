@@ -22,6 +22,10 @@ mod tests {
         fn handle(&self, command: MediaCommand, argument: i64) {
             self.commands.lock().unwrap().push((command, argument));
         }
+
+        fn now_playing(&self) -> Option<crate::control::messages::NowPlayingMetadata> {
+            None
+        }
     }
 
     #[tokio::test]

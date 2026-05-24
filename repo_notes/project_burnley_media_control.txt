@@ -22,6 +22,15 @@ Payload:
 
 Total packet size: 15 bytes.
 
+Now-playing metadata uses message type 9 (MSG_NOW_PLAYING).
+
+Payload:
+
+- bytes 6-13: sequence number (u64 big-endian)
+- bytes 14-15: artist UTF-8 byte length (u16 big-endian)
+- bytes 16-17: title UTF-8 byte length (u16 big-endian)
+- following bytes: artist UTF-8, then title UTF-8
+
 Commands
 --------
 - 1 PLAY_PAUSE: toggle server playback state; argument ignored.
@@ -41,16 +50,16 @@ Volume commands are not applied to server volume yet. They are forwarded to regi
 
 Linux implementation
 --------------------
-Linux currently shells out to playerctl:
+Linux uses MPRIS directly over the session D-Bus:
 
-- play-pause
-- play
-- pause
-- next
-- previous
-- position +/-seconds for relative seek
+- PlayPause
+- Play
+- Pause
+- Next
+- Previous
+- Seek(offset_microseconds) for relative seek
 
-This uses MPRIS through playerctl and is best-effort. If playerctl is not installed or no player supports the command, the command is logged and ignored.
+The server picks the first bus name matching org.mpris.MediaPlayer2.*. Commands are best-effort. If no MPRIS player is available, the session bus is unavailable, or the selected player does not support a command, the command is logged and ignored.
 
 Windows implementation
 ----------------------
@@ -67,3 +76,7 @@ Compatibility
 Malformed packets and unknown command codes are ignored by the parser.
 
 Commands are best-effort. There is no acknowledgement or capability negotiation yet.
+
+Now-playing metadata
+--------------------
+The server polls MPRIS metadata every 2 seconds and broadcasts a metadata packet only when artist/title changes. Empty artist/title clears client display after previously available metadata disappears.
