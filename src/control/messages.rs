@@ -24,6 +24,7 @@ pub enum MediaCommand {
     VolumeUp,
     VolumeDown,
     SeekAbsoluteMs,
+    Stop,
 }
 
 impl MediaCommand {
@@ -38,6 +39,7 @@ impl MediaCommand {
             7 => Some(Self::VolumeUp),
             8 => Some(Self::VolumeDown),
             9 => Some(Self::SeekAbsoluteMs),
+            10 => Some(Self::Stop),
             _ => None,
         }
     }
@@ -53,6 +55,7 @@ impl MediaCommand {
             Self::VolumeUp => 7,
             Self::VolumeDown => 8,
             Self::SeekAbsoluteMs => 9,
+            Self::Stop => 10,
         }
     }
 
@@ -297,6 +300,12 @@ mod tests {
         assert!(matches!(
             parse_control_packet(&absolute_seek),
             Some(ControlMessage::MediaControl { command: MediaCommand::SeekAbsoluteMs, argument: 60_000 })
+        ));
+
+        let stop = build_media_control_packet(MediaCommand::Stop, 0);
+        assert!(matches!(
+            parse_control_packet(&stop),
+            Some(ControlMessage::MediaControl { command: MediaCommand::Stop, argument: 0 })
         ));
 
         let mut invalid = Vec::new();

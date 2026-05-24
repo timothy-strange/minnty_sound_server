@@ -52,8 +52,15 @@ mod platform {
 
         match command {
             MediaCommand::PlayPause => proxy.method_call("org.mpris.MediaPlayer2.Player", "PlayPause", ())?,
-            MediaCommand::Play => proxy.method_call("org.mpris.MediaPlayer2.Player", "Play", ())?,
+            MediaCommand::Play => {
+                if read_playback_status(&proxy)? == PlaybackStatus::Playing {
+                    crate::log_info!("media control linux ignoring Play because player is already playing player={}", player);
+                } else {
+                    proxy.method_call("org.mpris.MediaPlayer2.Player", "Play", ())?
+                }
+            }
             MediaCommand::Pause => proxy.method_call("org.mpris.MediaPlayer2.Player", "Pause", ())?,
+            MediaCommand::Stop => proxy.method_call("org.mpris.MediaPlayer2.Player", "Stop", ())?,
             MediaCommand::Next => proxy.method_call("org.mpris.MediaPlayer2.Player", "Next", ())?,
             MediaCommand::Previous => proxy.method_call("org.mpris.MediaPlayer2.Player", "Previous", ())?,
             MediaCommand::SeekRelativeMs => {
@@ -83,6 +90,26 @@ mod platform {
             .and_then(|v| v.0.as_str())
             .map(|s| dbus::Path::from(s.to_string()));
         Ok(track_id)
+    }
+
+    fn read_playback_status(
+        proxy: &dbus::blocking::Proxy<&Connection>,
+    ) -> Result<PlaybackStatus, Box<dyn std::error::Error>> {
+        let (status,): (Variant<Box<dyn RefArg>>,) = proxy.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            ("org.mpris.MediaPlayer2.Player", "PlaybackStatus"),
+        )?;
+        Ok(parse_playback_status(status.0.as_str()))
+    }
+
+    fn parse_playback_status(status: Option<&str>) -> PlaybackStatus {
+        match status {
+            Some("Playing") => PlaybackStatus::Playing,
+            Some("Paused") => PlaybackStatus::Paused,
+            Some("Stopped") => PlaybackStatus::Stopped,
+            _ => PlaybackStatus::Unknown,
+        }
     }
 
     fn find_player_name(connection: &Connection) -> Result<String, Box<dyn std::error::Error>> {
@@ -118,16 +145,11 @@ mod platform {
             ("org.mpris.MediaPlayer2.Player",),
         )?;
 
-        let playback_status = all_props
-            .get("PlaybackStatus")
-            .and_then(|v| v.0.as_str())
-            .map(|s| match s {
-                "Playing" => PlaybackStatus::Playing,
-                "Paused" => PlaybackStatus::Paused,
-                "Stopped" => PlaybackStatus::Stopped,
-                _ => PlaybackStatus::Unknown,
-            })
-            .unwrap_or(PlaybackStatus::Unknown);
+        let playback_status = parse_playback_status(
+            all_props
+                .get("PlaybackStatus")
+                .and_then(|v| v.0.as_str()),
+        );
 
         let position_ms = all_props
             .get("Position")
@@ -179,13 +201,23 @@ mod platform {
 
     #[cfg(test)]
     mod tests {
-        use super::refarg_microseconds_to_ms;
+        use super::{parse_playback_status, refarg_microseconds_to_ms};
+        use crate::control::messages::PlaybackStatus;
 
         #[test]
         fn refarg_microseconds_to_ms_accepts_signed_and_unsigned_values() {
             assert_eq!(refarg_microseconds_to_ms(&123_456i64), Some(123));
             assert_eq!(refarg_microseconds_to_ms(&407_973_000u64), Some(407_973));
             assert_eq!(refarg_microseconds_to_ms(&-1i64), None);
+        }
+
+        #[test]
+        fn parse_playback_status_maps_mpris_strings() {
+            assert_eq!(parse_playback_status(Some("Playing")), PlaybackStatus::Playing);
+            assert_eq!(parse_playback_status(Some("Paused")), PlaybackStatus::Paused);
+            assert_eq!(parse_playback_status(Some("Stopped")), PlaybackStatus::Stopped);
+            assert_eq!(parse_playback_status(Some("Other")), PlaybackStatus::Unknown);
+            assert_eq!(parse_playback_status(None), PlaybackStatus::Unknown);
         }
     }
 }
@@ -201,7 +233,7 @@ mod platform {
             MediaCommand::PlayPause | MediaCommand::Play | MediaCommand::Pause => 0xB3u8,
             MediaCommand::Next => 0xB0u8,
             MediaCommand::Previous => 0xB1u8,
-            MediaCommand::SeekRelativeMs | MediaCommand::SeekAbsoluteMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
+            MediaCommand::Stop | MediaCommand::SeekRelativeMs | MediaCommand::SeekAbsoluteMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
                 crate::log_warn!("media control windows unsupported command={:?}", command);
                 return;
             }
