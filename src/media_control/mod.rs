@@ -18,6 +18,7 @@ mod platform {
     use std::process::Command;
 
     pub fn handle(command: MediaCommand, argument: i64) {
+        crate::log_info!("media control linux command={:?} argument={}", command, argument);
         let result = match command {
             MediaCommand::PlayPause => Command::new("playerctl").arg("play-pause").status(),
             MediaCommand::Play => Command::new("playerctl").arg("play").status(),
@@ -34,8 +35,16 @@ mod platform {
             MediaCommand::VolumeUp | MediaCommand::VolumeDown => return,
         };
 
-        if let Err(e) = result {
-            crate::log_warn!("media control failed command={:?}: {}", command, e);
+        match result {
+            Ok(status) if status.success() => {
+                crate::log_info!("media control linux complete command={:?} status={}", command, status);
+            }
+            Ok(status) => {
+                crate::log_warn!("media control linux failed command={:?} status={}", command, status);
+            }
+            Err(e) => {
+                crate::log_warn!("media control linux failed command={:?}: {}", command, e);
+            }
         }
     }
 }
@@ -50,20 +59,32 @@ mod platform {
             MediaCommand::PlayPause | MediaCommand::Play | MediaCommand::Pause => 0xB3u8,
             MediaCommand::Next => 0xB0u8,
             MediaCommand::Previous => 0xB1u8,
-            MediaCommand::SeekRelativeMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => return,
+            MediaCommand::SeekRelativeMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
+                crate::log_warn!("media control windows unsupported command={:?}", command);
+                return;
+            }
         };
+        crate::log_info!("media control windows command={:?} key=0x{:X}", command, key);
         let script = format!(
             "Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);' -Name Native -Namespace Win32; [Win32.Native]::keybd_event({key},0,0,[UIntPtr]::Zero); [Win32.Native]::keybd_event({key},0,2,[UIntPtr]::Zero)"
         );
-        if let Err(e) = Command::new("powershell")
+        let result = Command::new("powershell")
             .arg("-NoProfile")
             .arg("-ExecutionPolicy")
             .arg("Bypass")
             .arg("-Command")
             .arg(script)
-            .status()
-        {
-            crate::log_warn!("media control failed command={:?}: {}", command, e);
+            .status();
+        match result {
+            Ok(status) if status.success() => {
+                crate::log_info!("media control windows complete command={:?} status={}", command, status);
+            }
+            Ok(status) => {
+                crate::log_warn!("media control windows failed command={:?} status={}", command, status);
+            }
+            Err(e) => {
+                crate::log_warn!("media control windows failed command={:?}: {}", command, e);
+            }
         }
     }
 }

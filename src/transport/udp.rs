@@ -159,19 +159,40 @@ impl UdpServer {
     }
 
     async fn handle_media_control(&self, sender: SocketAddr, command: MediaCommand, argument: i64) {
+        let registered_clients = self.active_client_addresses(None).await.len();
+        crate::log_info!(
+            "media control received command={:?} argument={} sender={} registeredClients={}",
+            command,
+            argument,
+            sender,
+            registered_clients
+        );
         if command.is_volume() {
             let packet = build_media_control_packet(command, argument);
-            self.send_to_clients_except(&packet, sender).await;
+            let (forwarded, errors) = self.send_to_clients_except(&packet, sender).await;
+            crate::log_info!(
+                "media control forwarded command={:?} sender={} forwardedClients={} sendErrors={}",
+                command,
+                sender,
+                forwarded,
+                errors
+            );
         } else {
+            crate::log_info!("media control dispatching command={:?} argument={}", command, argument);
             self.media_controller.handle(command, argument);
         }
     }
 
-    async fn send_to_clients_except(&self, packet: &[u8], excluded: SocketAddr) {
+    async fn send_to_clients_except(&self, packet: &[u8], excluded: SocketAddr) -> (usize, u64) {
         let addresses = self.active_client_addresses(Some(excluded)).await;
+        let forwarded = addresses.len();
+        let mut send_errors = 0u64;
         for addr in addresses {
-            let _ = self.socket.send_to(packet, addr).await;
+            if self.socket.send_to(packet, addr).await.is_err() {
+                send_errors += 1;
+            }
         }
+        (forwarded, send_errors)
     }
 
     async fn active_client_addresses(&self, excluded: Option<SocketAddr>) -> Vec<SocketAddr> {
