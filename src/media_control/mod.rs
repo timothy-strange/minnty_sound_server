@@ -176,6 +176,18 @@ mod platform {
             .or_else(|| value.as_u64())
             .map(|value| value / 1_000)
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::refarg_microseconds_to_ms;
+
+        #[test]
+        fn refarg_microseconds_to_ms_accepts_signed_and_unsigned_values() {
+            assert_eq!(refarg_microseconds_to_ms(&123_456i64), Some(123));
+            assert_eq!(refarg_microseconds_to_ms(&407_973_000u64), Some(407_973));
+            assert_eq!(refarg_microseconds_to_ms(&-1i64), None);
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
