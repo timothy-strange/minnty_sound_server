@@ -59,11 +59,13 @@ struct TriggerGapRequest {
 #[derive(Serialize)]
 struct SettingsResponse {
     frame_duration_ms: u32,
+    change_server_volume_from_clients: bool,
 }
 
 #[derive(Deserialize)]
 struct SetSettingsRequest {
-    frame_duration_ms: u32,
+    frame_duration_ms: Option<u32>,
+    change_server_volume_from_clients: Option<bool>,
 }
 
 async fn index() -> Html<&'static str> {
@@ -185,6 +187,7 @@ async fn stream_status(State(state): State<AppState>) -> impl IntoResponse {
 async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     Json(SettingsResponse {
         frame_duration_ms: state.stream.get_frame_duration_ms(),
+        change_server_volume_from_clients: state.stream.change_server_volume_from_clients(),
     })
 }
 
@@ -192,15 +195,21 @@ async fn set_settings(
     State(state): State<AppState>,
     Json(payload): Json<SetSettingsRequest>,
 ) -> Result<(StatusCode, Json<SettingsResponse>), (StatusCode, Json<ErrorResponse>)> {
-    match state.stream.set_frame_duration_ms(payload.frame_duration_ms) {
-        Ok(()) => Ok((
-            StatusCode::OK,
-            Json(SettingsResponse {
-                frame_duration_ms: state.stream.get_frame_duration_ms(),
-            }),
-        )),
-        Err(err) => Err(error_response(StatusCode::BAD_REQUEST, err)),
+    if let Some(frame_duration_ms) = payload.frame_duration_ms {
+        if let Err(err) = state.stream.set_frame_duration_ms(frame_duration_ms) {
+            return Err(error_response(StatusCode::BAD_REQUEST, err));
+        }
     }
+    if let Some(enabled) = payload.change_server_volume_from_clients {
+        state.stream.set_change_server_volume_from_clients(enabled);
+    }
+    Ok((
+        StatusCode::OK,
+        Json(SettingsResponse {
+            frame_duration_ms: state.stream.get_frame_duration_ms(),
+            change_server_volume_from_clients: state.stream.change_server_volume_from_clients(),
+        }),
+    ))
 }
 
 fn error_response(status: StatusCode, message: String) -> (StatusCode, Json<ErrorResponse>) {

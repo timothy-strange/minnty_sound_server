@@ -2,6 +2,7 @@ use crate::control::messages::{MediaCommand, NowPlayingMetadata};
 
 pub trait MediaController: Send + Sync {
     fn handle(&self, command: MediaCommand, argument: i64);
+    fn adjust_volume(&self, command: MediaCommand, sink: Option<&str>);
     fn now_playing(&self) -> Option<NowPlayingMetadata>;
 }
 
@@ -12,6 +13,10 @@ impl MediaController for PlatformMediaController {
         platform::handle(command, argument);
     }
 
+    fn adjust_volume(&self, command: MediaCommand, sink: Option<&str>) {
+        platform::adjust_volume(command, sink);
+    }
+
     fn now_playing(&self) -> Option<NowPlayingMetadata> {
         platform::now_playing()
     }
@@ -20,13 +25,17 @@ impl MediaController for PlatformMediaController {
 #[cfg(target_os = "linux")]
 mod platform {
     use crate::control::messages::{MediaCommand, NowPlayingMetadata, PlaybackStatus};
-    use dbus::blocking::Connection;
     use dbus::arg::{RefArg, Variant};
+    use dbus::blocking::Connection;
     use std::collections::HashMap;
     use std::time::Duration;
 
     pub fn handle(command: MediaCommand, argument: i64) {
-        crate::log_info!("media control linux command={:?} argument={}", command, argument);
+        crate::log_info!(
+            "media control linux command={:?} argument={}",
+            command,
+            argument
+        );
         if matches!(command, MediaCommand::VolumeUp | MediaCommand::VolumeDown) {
             return;
         }
@@ -41,7 +50,49 @@ mod platform {
         }
     }
 
-    fn dispatch_mpris(command: MediaCommand, argument: i64) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn adjust_volume(command: MediaCommand, sink: Option<&str>) {
+        let step = match command {
+            MediaCommand::VolumeUp => "+5%",
+            MediaCommand::VolumeDown => "-5%",
+            _ => return,
+        };
+        let target = sink.unwrap_or("@DEFAULT_SINK@");
+        match std::process::Command::new("pactl")
+            .arg("set-sink-volume")
+            .arg(target)
+            .arg(step)
+            .status()
+        {
+            Ok(status) if status.success() => {
+                crate::log_info!(
+                    "server volume adjusted command={:?} sink={}",
+                    command,
+                    target
+                );
+            }
+            Ok(status) => {
+                crate::log_warn!(
+                    "server volume adjust failed command={:?} sink={} status={}",
+                    command,
+                    target,
+                    status
+                );
+            }
+            Err(e) => {
+                crate::log_warn!(
+                    "server volume adjust failed command={:?} sink={}: {}",
+                    command,
+                    target,
+                    e
+                );
+            }
+        }
+    }
+
+    fn dispatch_mpris(
+        command: MediaCommand,
+        argument: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let connection = Connection::new_session()?;
         let player = find_player_name(&connection)?;
         let proxy = connection.with_proxy(
@@ -51,28 +102,47 @@ mod platform {
         );
 
         match command {
-            MediaCommand::PlayPause => proxy.method_call("org.mpris.MediaPlayer2.Player", "PlayPause", ())?,
+            MediaCommand::PlayPause => {
+                proxy.method_call("org.mpris.MediaPlayer2.Player", "PlayPause", ())?
+            }
             MediaCommand::Play => {
                 if read_playback_status(&proxy)? == PlaybackStatus::Playing {
-                    crate::log_info!("media control linux ignoring Play because player is already playing player={}", player);
+                    crate::log_info!(
+                        "media control linux ignoring Play because player is already playing player={}",
+                        player
+                    );
                 } else {
                     proxy.method_call("org.mpris.MediaPlayer2.Player", "Play", ())?
                 }
             }
-            MediaCommand::Pause => proxy.method_call("org.mpris.MediaPlayer2.Player", "Pause", ())?,
+            MediaCommand::Pause => {
+                proxy.method_call("org.mpris.MediaPlayer2.Player", "Pause", ())?
+            }
             MediaCommand::Stop => proxy.method_call("org.mpris.MediaPlayer2.Player", "Stop", ())?,
             MediaCommand::Next => proxy.method_call("org.mpris.MediaPlayer2.Player", "Next", ())?,
-            MediaCommand::Previous => proxy.method_call("org.mpris.MediaPlayer2.Player", "Previous", ())?,
+            MediaCommand::Previous => {
+                proxy.method_call("org.mpris.MediaPlayer2.Player", "Previous", ())?
+            }
             MediaCommand::SeekRelativeMs => {
                 let offset_microseconds = argument.saturating_mul(1_000);
-                proxy.method_call("org.mpris.MediaPlayer2.Player", "Seek", (offset_microseconds,))?
+                proxy.method_call(
+                    "org.mpris.MediaPlayer2.Player",
+                    "Seek",
+                    (offset_microseconds,),
+                )?
             }
             MediaCommand::SeekAbsoluteMs => {
                 let track_id = read_track_id(&proxy)?.ok_or("no MPRIS track ID available")?;
                 let position_microseconds = argument.max(0).saturating_mul(1_000);
-                proxy.method_call("org.mpris.MediaPlayer2.Player", "SetPosition", (track_id, position_microseconds))?
+                proxy.method_call(
+                    "org.mpris.MediaPlayer2.Player",
+                    "SetPosition",
+                    (track_id, position_microseconds),
+                )?
             }
-            MediaCommand::VolumeUp | MediaCommand::VolumeDown => return Err("volume commands are not MPRIS commands".into()),
+            MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
+                return Err("volume commands are not MPRIS commands".into());
+            }
         }
         Ok(player)
     }
@@ -145,11 +215,8 @@ mod platform {
             ("org.mpris.MediaPlayer2.Player",),
         )?;
 
-        let playback_status = parse_playback_status(
-            all_props
-                .get("PlaybackStatus")
-                .and_then(|v| v.0.as_str()),
-        );
+        let playback_status =
+            parse_playback_status(all_props.get("PlaybackStatus").and_then(|v| v.0.as_str()));
 
         let position_ms = all_props
             .get("Position")
@@ -188,7 +255,14 @@ mod platform {
             }
         };
 
-        Ok(Some(NowPlayingMetadata { artist, title, playback_status, position_ms, duration_ms, track_id }))
+        Ok(Some(NowPlayingMetadata {
+            artist,
+            title,
+            playback_status,
+            position_ms,
+            duration_ms,
+            track_id,
+        }))
     }
 
     fn refarg_microseconds_to_ms(value: &dyn RefArg) -> Option<u64> {
@@ -213,10 +287,22 @@ mod platform {
 
         #[test]
         fn parse_playback_status_maps_mpris_strings() {
-            assert_eq!(parse_playback_status(Some("Playing")), PlaybackStatus::Playing);
-            assert_eq!(parse_playback_status(Some("Paused")), PlaybackStatus::Paused);
-            assert_eq!(parse_playback_status(Some("Stopped")), PlaybackStatus::Stopped);
-            assert_eq!(parse_playback_status(Some("Other")), PlaybackStatus::Unknown);
+            assert_eq!(
+                parse_playback_status(Some("Playing")),
+                PlaybackStatus::Playing
+            );
+            assert_eq!(
+                parse_playback_status(Some("Paused")),
+                PlaybackStatus::Paused
+            );
+            assert_eq!(
+                parse_playback_status(Some("Stopped")),
+                PlaybackStatus::Stopped
+            );
+            assert_eq!(
+                parse_playback_status(Some("Other")),
+                PlaybackStatus::Unknown
+            );
             assert_eq!(parse_playback_status(None), PlaybackStatus::Unknown);
         }
     }
@@ -233,12 +319,20 @@ mod platform {
             MediaCommand::PlayPause | MediaCommand::Play | MediaCommand::Pause => 0xB3u8,
             MediaCommand::Next => 0xB0u8,
             MediaCommand::Previous => 0xB1u8,
-            MediaCommand::Stop | MediaCommand::SeekRelativeMs | MediaCommand::SeekAbsoluteMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
+            MediaCommand::Stop
+            | MediaCommand::SeekRelativeMs
+            | MediaCommand::SeekAbsoluteMs
+            | MediaCommand::VolumeUp
+            | MediaCommand::VolumeDown => {
                 crate::log_warn!("media control windows unsupported command={:?}", command);
                 return;
             }
         };
-        crate::log_info!("media control windows command={:?} key=0x{:X}", command, key);
+        crate::log_info!(
+            "media control windows command={:?} key=0x{:X}",
+            command,
+            key
+        );
         let script = format!(
             "Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);' -Name Native -Namespace Win32; [Win32.Native]::keybd_event({key},0,0,[UIntPtr]::Zero); [Win32.Native]::keybd_event({key},0,2,[UIntPtr]::Zero)"
         );
@@ -251,15 +345,30 @@ mod platform {
             .status();
         match result {
             Ok(status) if status.success() => {
-                crate::log_info!("media control windows complete command={:?} status={}", command, status);
+                crate::log_info!(
+                    "media control windows complete command={:?} status={}",
+                    command,
+                    status
+                );
             }
             Ok(status) => {
-                crate::log_warn!("media control windows failed command={:?} status={}", command, status);
+                crate::log_warn!(
+                    "media control windows failed command={:?} status={}",
+                    command,
+                    status
+                );
             }
             Err(e) => {
                 crate::log_warn!("media control windows failed command={:?}: {}", command, e);
             }
         }
+    }
+
+    pub fn adjust_volume(command: MediaCommand, _sink: Option<&str>) {
+        crate::log_warn!(
+            "server volume adjustment unsupported on Windows command={:?}",
+            command
+        );
     }
 
     pub fn now_playing() -> Option<NowPlayingMetadata> {
@@ -273,7 +382,17 @@ mod platform {
     use crate::control::messages::NowPlayingMetadata;
 
     pub fn handle(command: MediaCommand, _argument: i64) {
-        crate::log_warn!("media control unsupported on this platform command={:?}", command);
+        crate::log_warn!(
+            "media control unsupported on this platform command={:?}",
+            command
+        );
+    }
+
+    pub fn adjust_volume(command: MediaCommand, _sink: Option<&str>) {
+        crate::log_warn!(
+            "server volume adjustment unsupported on this platform command={:?}",
+            command
+        );
     }
 
     pub fn now_playing() -> Option<NowPlayingMetadata> {

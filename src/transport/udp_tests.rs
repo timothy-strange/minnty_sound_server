@@ -2,25 +2,33 @@
 mod tests {
     use crate::control::messages::{
         DEFAULT_STREAM_CONFIG, MAGIC, MSG_CONFIG, MSG_HELLO, MSG_KEEPALIVE, MSG_MEDIA_CONTROL,
-        MSG_STATUS, MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE, MediaCommand,
-        VERSION, build_media_control_packet,
+        MSG_STATUS, MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE,
+        MediaCommand, VERSION, build_media_control_packet,
     };
     use crate::media_control::MediaController;
     use crate::transport::udp::UdpServer;
     use std::net::SocketAddr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use tokio::time::{Duration, timeout};
     use tokio::net::UdpSocket;
+    use tokio::time::{Duration, timeout};
 
     #[derive(Default)]
     struct RecordingMediaController {
         commands: Mutex<Vec<(MediaCommand, i64)>>,
+        volume_adjustments: Mutex<Vec<(MediaCommand, Option<String>)>>,
     }
 
     impl MediaController for RecordingMediaController {
         fn handle(&self, command: MediaCommand, argument: i64) {
             self.commands.lock().unwrap().push((command, argument));
+        }
+
+        fn adjust_volume(&self, command: MediaCommand, sink: Option<&str>) {
+            self.volume_adjustments
+                .lock()
+                .unwrap()
+                .push((command, sink.map(str::to_string)));
         }
 
         fn now_playing(&self) -> Option<crate::control::messages::NowPlayingMetadata> {
@@ -110,7 +118,10 @@ mod tests {
 
         let mut buf = [0u8; 256];
         let recv = timeout(Duration::from_millis(200), client.recv_from(&mut buf)).await;
-        assert!(recv.is_err(), "unexpected response to unknown KEEPALIVE sender");
+        assert!(
+            recv.is_err(),
+            "unexpected response to unknown KEEPALIVE sender"
+        );
     }
 
     #[tokio::test]
@@ -159,9 +170,15 @@ mod tests {
         let addr = SocketAddr::from(([127, 0, 0, 1], 0));
         let media_controller = Arc::new(RecordingMediaController::default());
         let server = Arc::new(
-            UdpServer::bind_with_media_controller(addr, config, 789, media_controller.clone())
-                .await
-                .unwrap(),
+            UdpServer::bind_with_media_controller(
+                addr,
+                config,
+                789,
+                media_controller.clone(),
+                Arc::new(crate::server_state::ServerState::new()),
+            )
+            .await
+            .unwrap(),
         );
         let server_addr = server.local_addr().unwrap();
 
@@ -181,7 +198,10 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         let commands = media_controller.commands.lock().unwrap();
-        assert_eq!(commands.as_slice(), &[(MediaCommand::SeekRelativeMs, -30_000)]);
+        assert_eq!(
+            commands.as_slice(),
+            &[(MediaCommand::SeekRelativeMs, -30_000)]
+        );
     }
 
     #[tokio::test]
@@ -225,6 +245,54 @@ mod tests {
         assert_eq!(buf[6], MediaCommand::VolumeUp.code());
 
         let sender_recv = timeout(Duration::from_millis(200), sender.recv_from(&mut buf)).await;
-        assert!(sender_recv.is_err(), "sender should not receive its own forwarded volume command");
+        assert!(
+            sender_recv.is_err(),
+            "sender should not receive its own forwarded volume command"
+        );
+    }
+
+    #[tokio::test]
+    async fn udp_volume_command_adjusts_server_volume_when_enabled() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let media_controller = Arc::new(RecordingMediaController::default());
+        let server_state = Arc::new(crate::server_state::ServerState::new());
+        server_state.set_change_server_volume_from_clients(true);
+        server_state
+            .set_current_sink(Some("alsa_output.test".to_string()))
+            .await;
+        let server = Arc::new(
+            UdpServer::bind_with_media_controller(
+                addr,
+                config,
+                789,
+                media_controller.clone(),
+                server_state,
+            )
+            .await
+            .unwrap(),
+        );
+        let server_addr = server.local_addr().unwrap();
+
+        let listener = Arc::clone(&server);
+        tokio::spawn(async move {
+            let _ = listener.run_listener().await;
+        });
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        client
+            .send_to(
+                &build_media_control_packet(MediaCommand::VolumeDown, 0),
+                server_addr,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let adjustments = media_controller.volume_adjustments.lock().unwrap();
+        assert_eq!(
+            adjustments.as_slice(),
+            &[(MediaCommand::VolumeDown, Some("alsa_output.test".to_string()))]
+        );
     }
 }

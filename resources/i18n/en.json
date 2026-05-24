@@ -48,6 +48,8 @@
     "settings": {
       "title": "Settings",
       "close": "Close",
+      "server_volume_from_clients_label": "Change volume on server when volume is changed on clients",
+      "advanced": "Advanced",
       "frame_duration_label": "Frame Duration",
       "frame_duration_10ms": "10 ms",
       "frame_duration_20ms": "20 ms",

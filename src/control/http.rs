@@ -2,6 +2,7 @@ use crate::audio::capture::PcmFrame;
 use crate::audio::controller::AudioSource;
 use crate::control::messages::{StreamConfig, build_stream_packet};
 use crate::encode::opus::OpusEncoder;
+use crate::server_state::ServerState;
 use crate::testing::net_impairment::NetImpairmentController;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ pub struct StreamManager {
     audio: Arc<dyn AudioSource>,
     udp: Arc<UdpServer>,
     config: StreamConfig,
+    server_state: Arc<ServerState>,
     frame_size: AtomicUsize,
     impairment: Arc<NetImpairmentController>,
     state: Mutex<StreamRuntime>,
@@ -54,11 +56,13 @@ impl StreamManager {
         audio: Arc<dyn AudioSource>,
         udp: Arc<UdpServer>,
         config: StreamConfig,
+        server_state: Arc<ServerState>,
         impairment: Arc<NetImpairmentController>,
     ) -> Self {
         Self {
             audio,
             udp,
+            server_state,
             frame_size: AtomicUsize::new(config.frame_size),
             config,
             impairment,
@@ -84,9 +88,16 @@ impl StreamManager {
             StreamSource::Capture
         };
         let frame_size = self.frame_size.load(Ordering::Relaxed);
-        let effective_config = StreamConfig { frame_size, ..self.config };
+        let effective_config = StreamConfig {
+            frame_size,
+            ..self.config
+        };
         let receiver = match source {
-            StreamSource::Capture => self.audio.start_capture(sink.clone(), effective_config).await?,
+            StreamSource::Capture => {
+                self.audio
+                    .start_capture(sink.clone(), effective_config)
+                    .await?
+            }
             StreamSource::Calibration => calibration_stream(effective_config),
         };
         let mut encoder = match OpusEncoder::new(effective_config) {
@@ -101,8 +112,9 @@ impl StreamManager {
         let udp = Arc::clone(&self.udp);
         let impairment = Arc::clone(&self.impairment);
         let (stop_tx, mut stop_rx) = oneshot::channel();
-        let frame_duration =
-            Duration::from_secs_f64(effective_config.frame_size as f64 / effective_config.sample_rate as f64);
+        let frame_duration = Duration::from_secs_f64(
+            effective_config.frame_size as f64 / effective_config.sample_rate as f64,
+        );
 
         let task = tokio::spawn(async move {
             stream_loop(
@@ -118,10 +130,17 @@ impl StreamManager {
 
         self.udp.set_streaming(true);
         state.running = true;
-        state.sink = Some(sink);
+        state.sink = Some(sink.clone());
         state.source = Some(source);
         state.stop_tx = Some(stop_tx);
         state.task = Some(task);
+        self.server_state
+            .set_current_sink(if source == StreamSource::Capture {
+                Some(sink)
+            } else {
+                None
+            })
+            .await;
 
         Ok(())
     }
@@ -157,6 +176,7 @@ impl StreamManager {
             self.audio.stop_capture().await?;
         }
         self.udp.set_streaming(false);
+        self.server_state.set_current_sink(None).await;
 
         Ok(())
     }
@@ -168,11 +188,23 @@ impl StreamManager {
 
     pub fn set_frame_duration_ms(&self, ms: u32) -> Result<(), String> {
         if ms != 10 && ms != 20 {
-            return Err(format!("Unsupported frame duration: {}ms. Must be 10 or 20.", ms));
+            return Err(format!(
+                "Unsupported frame duration: {}ms. Must be 10 or 20.",
+                ms
+            ));
         }
         let frame_size = ms as usize * self.config.sample_rate as usize / 1000;
         self.frame_size.store(frame_size, Ordering::Relaxed);
         Ok(())
+    }
+
+    pub fn change_server_volume_from_clients(&self) -> bool {
+        self.server_state.change_server_volume_from_clients()
+    }
+
+    pub fn set_change_server_volume_from_clients(&self, enabled: bool) {
+        self.server_state
+            .set_change_server_volume_from_clients(enabled);
     }
 
     pub async fn status(&self) -> StreamStatusResponse {
@@ -247,7 +279,10 @@ impl CalibrationDrumKit {
     }
 
     fn sample(&self, instrument: &[f64], offset_frames: u64) -> f64 {
-        instrument.get(offset_frames as usize).copied().unwrap_or(0.0)
+        instrument
+            .get(offset_frames as usize)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     fn sample_at_hit(&self, instrument: &[f64], position_frames: u64, hit_frames: u64) -> f64 {
@@ -340,7 +375,9 @@ fn generate_snare(sample_rate: u32) -> Vec<f64> {
         let body = (phase1.sin() * 0.6 + phase2.sin() * 0.4) * body_env;
 
         // Snare wire: true white noise → VCA → 2-pole HPF at 2500 Hz
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let raw = (rng >> 32) as f64 / 2147483648.0 - 1.0;
         let wire_env = (-t * 45.0).exp();
         let shaped = raw * wire_env;
@@ -352,7 +389,9 @@ fn generate_snare(sample_rate: u32) -> Vec<f64> {
         hp2_py = hp2;
 
         // Attack crack: extra noise burst in the first few ms
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let crack = (rng >> 32) as f64 / 2147483648.0 - 1.0;
         let crack_env = (-t * 200.0).exp();
 
@@ -386,7 +425,9 @@ fn generate_hat(sample_rate: u32) -> Vec<f64> {
     for n in 0..len {
         let t = n as f64 / sample_rate as f64;
 
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let raw = (rng >> 32) as f64 / 2147483648.0 - 1.0;
 
         let hp1 = hp_a * (hp1_py + raw - hp1_px);
@@ -619,7 +660,13 @@ mod tests {
                 .unwrap(),
         );
         let impairment = Arc::new(NetImpairmentController::new());
-        let manager = StreamManager::new(audio_source, udp, config, impairment);
+        let manager = StreamManager::new(
+            audio_source,
+            udp,
+            config,
+            Arc::new(ServerState::new()),
+            impairment,
+        );
 
         let status = manager.status().await;
         assert!(!status.running);
@@ -649,9 +696,18 @@ mod tests {
                 .unwrap(),
         );
         let impairment = Arc::new(NetImpairmentController::new());
-        let manager = StreamManager::new(audio_source, udp, config, impairment);
+        let manager = StreamManager::new(
+            audio_source,
+            udp,
+            config,
+            Arc::new(ServerState::new()),
+            impairment,
+        );
 
-        manager.start(CALIBRATION_STREAM_NAME.to_string()).await.unwrap();
+        manager
+            .start(CALIBRATION_STREAM_NAME.to_string())
+            .await
+            .unwrap();
         let status = manager.status().await;
         assert!(status.running);
         assert_eq!(status.sink.as_deref(), Some(CALIBRATION_STREAM_NAME));

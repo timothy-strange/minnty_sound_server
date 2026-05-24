@@ -169,10 +169,18 @@
       border: none;
       color: var(--fg);
       border-radius: 0;
-      padding: 0;
-      font-size: 20px;
+      padding: 4px 2px;
+      font-size: 14px;
       font-weight: 600;
       letter-spacing: 0.01em;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .topbar-icon {
+      font-size: 18px;
+      line-height: 1;
     }
 
     .help-link:hover {
@@ -451,6 +459,38 @@
       padding: 10px 0;
     }
 
+    .settings-toggle-row {
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .settings-switch {
+      width: 42px;
+      height: 24px;
+      accent-color: #22c55e;
+      cursor: pointer;
+    }
+
+    .advanced-toggle {
+      margin-top: 8px;
+      padding: 6px 0;
+      background: transparent;
+      color: var(--fg);
+      font-weight: 600;
+      text-align: left;
+    }
+
+    .settings-advanced {
+      display: none;
+      border-top: 1px solid var(--help-border);
+      margin-top: 8px;
+      padding-top: 8px;
+    }
+
+    .settings-advanced.open {
+      display: block;
+    }
+
     .settings-label {
       font-size: 14px;
       color: var(--fg);
@@ -484,8 +524,8 @@
         <span class="theme-option" data-value="dark">Dark <span class="theme-icon">☽</span></span>
         <div class="theme-slider"></div>
       </div>
-      <button id="settingsBtn" class="help-link" aria-label="Settings">⚙</button>
-      <button id="helpBtn" class="help-link"></button>
+      <button id="settingsBtn" class="help-link" aria-label="Settings"><span id="settingsBtnText"></span><span class="topbar-icon">⚙</span></button>
+      <button id="helpBtn" class="help-link"><span id="helpBtnText"></span><span class="topbar-icon">ⓘ</span></button>
     </div>
   </div>
 
@@ -534,15 +574,22 @@
         <h2 id="settingsTitle" class="help-title"></h2>
         <button id="settingsClose" class="help-close"></button>
       </div>
-      <div class="settings-row">
-        <span id="settingsFrameDurationLabel" class="settings-label"></span>
-        <div id="frameDurationToggle" class="theme-toggle" role="group" aria-label="Frame duration">
-          <span class="theme-option" data-value="10" tabindex="0" role="radio"></span>
-          <span class="theme-option" data-value="20" tabindex="0" role="radio"></span>
-          <div class="settings-slider"></div>
+      <label class="settings-row settings-toggle-row">
+        <span id="settingsServerVolumeLabel" class="settings-label"></span>
+        <input id="serverVolumeToggle" class="settings-switch" type="checkbox" role="switch" />
+      </label>
+      <button id="advancedToggle" class="advanced-toggle"></button>
+      <div id="advancedSettings" class="settings-advanced">
+        <div class="settings-row">
+          <span id="settingsFrameDurationLabel" class="settings-label"></span>
+          <div id="frameDurationToggle" class="theme-toggle" role="group" aria-label="Frame duration">
+            <span class="theme-option" data-value="10" tabindex="0" role="radio"></span>
+            <span class="theme-option" data-value="20" tabindex="0" role="radio"></span>
+            <div class="settings-slider"></div>
+          </div>
         </div>
+        <p id="settingsFrameDurationNote" class="settings-note"></p>
       </div>
-      <p id="settingsFrameDurationNote" class="settings-note"></p>
     </div>
   </div>
 
@@ -551,14 +598,20 @@
     const startBtn = document.getElementById("startBtn");
     const themeToggle = document.getElementById("themeToggle");
     const settingsBtn = document.getElementById("settingsBtn");
+    const settingsBtnText = document.getElementById("settingsBtnText");
     const settingsModal = document.getElementById("settingsModal");
     const settingsClose = document.getElementById("settingsClose");
     const settingsTitle = document.getElementById("settingsTitle");
+    const settingsServerVolumeLabel = document.getElementById("settingsServerVolumeLabel");
+    const serverVolumeToggle = document.getElementById("serverVolumeToggle");
+    const advancedToggle = document.getElementById("advancedToggle");
+    const advancedSettings = document.getElementById("advancedSettings");
     const settingsFrameDurationLabel = document.getElementById("settingsFrameDurationLabel");
     const settingsFrameDurationNote = document.getElementById("settingsFrameDurationNote");
     const frameDurationToggle = document.getElementById("frameDurationToggle");
     const frameDurationSlider = frameDurationToggle.querySelector(".settings-slider");
     const helpBtn = document.getElementById("helpBtn");
+    const helpBtnText = document.getElementById("helpBtnText");
     const helpModal = document.getElementById("helpModal");
     const helpClose = document.getElementById("helpClose");
     const helpTitle = document.getElementById("helpTitle");
@@ -597,6 +650,7 @@
     let lastFocusedBeforeHelp = null;
     let lastFocusedBeforeSettings = null;
     let currentFrameDurationMs = 10;
+    let currentServerVolumeFromClients = false;
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
     const tabChannelName = "minnty_ui_tabs";
@@ -651,12 +705,18 @@
       });
     }
 
+    function setServerVolumeUi(enabled) {
+      currentServerVolumeFromClients = !!enabled;
+      serverVolumeToggle.checked = currentServerVolumeFromClients;
+    }
+
     async function loadSettings() {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
         setFrameDurationUi(data.frame_duration_ms);
+        setServerVolumeUi(data.change_server_volume_from_clients);
       } catch (_) {}
     }
 
@@ -674,9 +734,29 @@
       } catch (_) {}
     }
 
+    async function setServerVolumeFromClients(enabled) {
+      if (enabled === currentServerVolumeFromClients) return;
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ change_server_volume_from_clients: enabled }),
+        });
+        if (!res.ok) {
+          setServerVolumeUi(currentServerVolumeFromClients);
+          return;
+        }
+        const data = await res.json();
+        setServerVolumeUi(data.change_server_volume_from_clients);
+      } catch (_) {
+        setServerVolumeUi(currentServerVolumeFromClients);
+      }
+    }
+
     function openSettings() {
       lastFocusedBeforeSettings = document.activeElement;
       settingsModal.classList.add("open");
+      advancedSettings.classList.remove("open");
       settingsClose.focus();
       loadSettings();
     }
@@ -762,13 +842,16 @@
       pageTitle.textContent = title;
       settingsTitle.textContent = t("web.settings.title");
       settingsClose.textContent = t("web.settings.close");
+      settingsBtnText.textContent = t("web.settings.title");
+      settingsServerVolumeLabel.textContent = t("web.settings.server_volume_from_clients_label");
+      advancedToggle.textContent = t("web.settings.advanced");
       settingsFrameDurationLabel.textContent = t("web.settings.frame_duration_label");
       settingsFrameDurationNote.textContent = t("web.settings.frame_duration_note");
       const opt10 = frameDurationToggle.querySelector(".theme-option[data-value='10']");
       const opt20 = frameDurationToggle.querySelector(".theme-option[data-value='20']");
       if (opt10) opt10.textContent = t("web.settings.frame_duration_10ms");
       if (opt20) opt20.textContent = t("web.settings.frame_duration_20ms");
-      helpBtn.textContent = t("web.buttons.help");
+      helpBtnText.textContent = t("web.buttons.help");
       helpTitle.textContent = t("web.help.title");
       helpClose.textContent = t("web.help.close");
       outputsTitle.textContent = t("web.outputs.title");
@@ -1079,6 +1162,12 @@
     settingsClose.addEventListener("click", closeSettings);
     settingsModal.addEventListener("click", (e) => {
       if (e.target === settingsModal) closeSettings();
+    });
+    serverVolumeToggle.addEventListener("change", () => {
+      setServerVolumeFromClients(serverVolumeToggle.checked);
+    });
+    advancedToggle.addEventListener("click", () => {
+      advancedSettings.classList.toggle("open");
     });
     frameDurationToggle.addEventListener("click", (e) => {
       const opt = e.target.closest(".theme-option");

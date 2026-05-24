@@ -5,6 +5,7 @@ mod i18n;
 mod launcher;
 mod logging;
 mod media_control;
+mod server_state;
 mod testing;
 mod transport;
 mod web;
@@ -13,6 +14,7 @@ use audio::controller::{AudioController, AudioSource};
 use control::http::StreamManager;
 use control::messages::DEFAULT_STREAM_CONFIG;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
+use server_state::ServerState;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use testing::net_impairment::NetImpairmentController;
@@ -35,7 +37,10 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let (audio_controller, meters) = AudioController::new()?;
 
     let udp_addr = SocketAddr::from(([0, 0, 0, 0], config.udp_port));
-    let udp_server = Arc::new(UdpServer::bind(udp_addr, config, session_id).await?);
+    let server_state = Arc::new(ServerState::new());
+    let udp_server = Arc::new(
+        UdpServer::bind_with_state(udp_addr, config, session_id, Arc::clone(&server_state)).await?,
+    );
     let udp_listener = Arc::clone(&udp_server);
     tokio::spawn(async move {
         let _ = udp_listener.run_listener().await;
@@ -48,6 +53,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         audio_source,
         udp_server,
         config,
+        server_state,
         Arc::clone(&impairment),
     ));
     let meters = meters
