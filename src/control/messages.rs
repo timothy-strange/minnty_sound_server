@@ -23,6 +23,7 @@ pub enum MediaCommand {
     SeekRelativeMs,
     VolumeUp,
     VolumeDown,
+    SeekAbsoluteMs,
 }
 
 impl MediaCommand {
@@ -36,6 +37,7 @@ impl MediaCommand {
             6 => Some(Self::SeekRelativeMs),
             7 => Some(Self::VolumeUp),
             8 => Some(Self::VolumeDown),
+            9 => Some(Self::SeekAbsoluteMs),
             _ => None,
         }
     }
@@ -50,6 +52,7 @@ impl MediaCommand {
             Self::SeekRelativeMs => 6,
             Self::VolumeUp => 7,
             Self::VolumeDown => 8,
+            Self::SeekAbsoluteMs => 9,
         }
     }
 
@@ -86,6 +89,9 @@ pub struct NowPlayingMetadata {
     pub artist: String,
     pub title: String,
     pub playback_status: PlaybackStatus,
+    pub position_ms: Option<u64>,
+    pub duration_ms: Option<u64>,
+    pub track_id: Option<String>,
 }
 
 pub const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig {
@@ -164,7 +170,7 @@ pub fn build_now_playing_packet(sequence: u64, metadata: &NowPlayingMetadata) ->
     let title = metadata.title.as_bytes();
     let artist_len = artist.len().min(u16::MAX as usize);
     let title_len = title.len().min(u16::MAX as usize);
-    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 8 + 1 + 2 + 2 + artist_len + title_len);
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 8 + 1 + 2 + 2 + artist_len + title_len + 16);
     buf.put_slice(&MAGIC);
     buf.put_u8(VERSION);
     buf.put_u8(MSG_NOW_PLAYING);
@@ -174,6 +180,8 @@ pub fn build_now_playing_packet(sequence: u64, metadata: &NowPlayingMetadata) ->
     buf.put_u16(title_len as u16);
     buf.put_slice(&artist[..artist_len]);
     buf.put_slice(&title[..title_len]);
+    buf.put_u64(metadata.position_ms.unwrap_or(u64::MAX));
+    buf.put_u64(metadata.duration_ms.unwrap_or(u64::MAX));
     buf.freeze()
 }
 
@@ -285,6 +293,12 @@ mod tests {
             Some(ControlMessage::MediaControl { command: MediaCommand::SeekRelativeMs, argument: -30_000 })
         ));
 
+        let absolute_seek = build_media_control_packet(MediaCommand::SeekAbsoluteMs, 60_000);
+        assert!(matches!(
+            parse_control_packet(&absolute_seek),
+            Some(ControlMessage::MediaControl { command: MediaCommand::SeekAbsoluteMs, argument: 60_000 })
+        ));
+
         let mut invalid = Vec::new();
         invalid.extend_from_slice(b"NOPE");
         invalid.push(VERSION);
@@ -362,6 +376,9 @@ mod tests {
                 artist: "Artist".to_string(),
                 title: "Title".to_string(),
                 playback_status: PlaybackStatus::Playing,
+                position_ms: Some(12_345),
+                duration_ms: Some(67_890),
+                track_id: Some("/track/1".to_string()),
             },
         );
         let bytes = packet.as_ref();
@@ -374,5 +391,7 @@ mod tests {
         assert_eq!(u16::from_be_bytes(bytes[17..19].try_into().unwrap()), 5);
         assert_eq!(&bytes[19..25], b"Artist");
         assert_eq!(&bytes[25..30], b"Title");
+        assert_eq!(u64::from_be_bytes(bytes[30..38].try_into().unwrap()), 12_345);
+        assert_eq!(u64::from_be_bytes(bytes[38..46].try_into().unwrap()), 67_890);
     }
 }

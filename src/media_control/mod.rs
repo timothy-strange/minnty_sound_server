@@ -60,9 +60,29 @@ mod platform {
                 let offset_microseconds = argument.saturating_mul(1_000);
                 proxy.method_call("org.mpris.MediaPlayer2.Player", "Seek", (offset_microseconds,))?
             }
+            MediaCommand::SeekAbsoluteMs => {
+                let track_id = read_track_id(&proxy)?.ok_or("no MPRIS track ID available")?;
+                let position_microseconds = argument.max(0).saturating_mul(1_000);
+                proxy.method_call("org.mpris.MediaPlayer2.Player", "SetPosition", (track_id, position_microseconds))?
+            }
             MediaCommand::VolumeUp | MediaCommand::VolumeDown => return Err("volume commands are not MPRIS commands".into()),
         }
         Ok(player)
+    }
+
+    fn read_track_id(
+        proxy: &dbus::blocking::Proxy<&Connection>,
+    ) -> Result<Option<dbus::Path<'static>>, Box<dyn std::error::Error>> {
+        let (metadata,): (Variant<Box<dyn RefArg>>,) = proxy.method_call(
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            ("org.mpris.MediaPlayer2.Player", "Metadata"),
+        )?;
+        let track_id = dbus::arg::cast::<HashMap<String, Variant<Box<dyn RefArg>>>>(&*metadata.0)
+            .and_then(|metadata_map| metadata_map.get("mpris:trackid"))
+            .and_then(|v| v.0.as_str())
+            .map(|s| dbus::Path::from(s.to_string()));
+        Ok(track_id)
     }
 
     fn find_player_name(connection: &Connection) -> Result<String, Box<dyn std::error::Error>> {
@@ -109,7 +129,11 @@ mod platform {
             })
             .unwrap_or(PlaybackStatus::Unknown);
 
-        let (title, artist) = match all_props
+        let position_ms = all_props
+            .get("Position")
+            .and_then(|v| refarg_microseconds_to_ms(&*v.0));
+
+        let (title, artist, duration_ms, track_id) = match all_props
             .get("Metadata")
             .and_then(|v| dbus::arg::cast::<HashMap<String, Variant<Box<dyn RefArg>>>>(&*v.0))
         {
@@ -127,15 +151,30 @@ mod platform {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
-                (title, artist)
+                let duration_ms = metadata_map
+                    .get("mpris:length")
+                    .and_then(|v| refarg_microseconds_to_ms(&*v.0));
+                let track_id = metadata_map
+                    .get("mpris:trackid")
+                    .and_then(|v| v.0.as_str())
+                    .map(str::to_string);
+                (title, artist, duration_ms, track_id)
             }
             None => {
                 crate::log_warn!("media control metadata decode failed player={}", player);
-                (String::new(), String::new())
+                (String::new(), String::new(), None, None)
             }
         };
 
-        Ok(Some(NowPlayingMetadata { artist, title, playback_status }))
+        Ok(Some(NowPlayingMetadata { artist, title, playback_status, position_ms, duration_ms, track_id }))
+    }
+
+    fn refarg_microseconds_to_ms(value: &dyn RefArg) -> Option<u64> {
+        value
+            .as_i64()
+            .and_then(|value| (value >= 0).then_some(value as u64))
+            .or_else(|| value.as_u64())
+            .map(|value| value / 1_000)
     }
 }
 
@@ -150,7 +189,7 @@ mod platform {
             MediaCommand::PlayPause | MediaCommand::Play | MediaCommand::Pause => 0xB3u8,
             MediaCommand::Next => 0xB0u8,
             MediaCommand::Previous => 0xB1u8,
-            MediaCommand::SeekRelativeMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
+            MediaCommand::SeekRelativeMs | MediaCommand::SeekAbsoluteMs | MediaCommand::VolumeUp | MediaCommand::VolumeDown => {
                 crate::log_warn!("media control windows unsupported command={:?}", command);
                 return;
             }

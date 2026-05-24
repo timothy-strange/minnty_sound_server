@@ -127,7 +127,7 @@ impl UdpServer {
                 let metadata = tokio::task::spawn_blocking(move || controller.now_playing())
                     .await
                     .unwrap_or(None);
-                if metadata == last_metadata {
+                if metadata == last_metadata && !matches!(metadata.as_ref().map(|m| m.playback_status), Some(PlaybackStatus::Playing)) {
                     continue;
                 }
                 sequence = sequence.wrapping_add(1);
@@ -135,16 +135,21 @@ impl UdpServer {
                     artist: String::new(),
                     title: String::new(),
                     playback_status: PlaybackStatus::Unknown,
+                    position_ms: None,
+                    duration_ms: None,
+                    track_id: None,
                 });
                 let packet = build_now_playing_packet(sequence, &packet_metadata);
                 *self.latest_metadata_packet.lock().await = Some(packet.clone());
                 let (sent, errors) = self.send_packet_to_clients(&packet).await;
                 crate::log_info!(
-                    "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} clients={} sendErrors={}",
+                    "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} positionMs={:?} durationMs={:?} clients={} sendErrors={}",
                     sequence,
                     packet_metadata.artist,
                     packet_metadata.title,
                     packet_metadata.playback_status,
+                    packet_metadata.position_ms,
+                    packet_metadata.duration_ms,
                     sent,
                     errors
                 );
