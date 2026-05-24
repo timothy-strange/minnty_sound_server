@@ -4,6 +4,7 @@ mod encode;
 mod i18n;
 mod launcher;
 mod logging;
+mod media_control;
 mod testing;
 mod transport;
 mod web;

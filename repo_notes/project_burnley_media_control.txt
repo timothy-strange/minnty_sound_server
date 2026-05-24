@@ -1,0 +1,69 @@
+Project Burnley media control protocol
+======================================
+
+Purpose
+-------
+Project Burnley lets Android clients send media and volume commands to the server over the existing UDP control socket.
+
+Packet format
+-------------
+All packets use the existing control header:
+
+- bytes 0-3: ASCII magic MNTY
+- byte 4: protocol version, currently 1
+- byte 5: message type
+
+Media control uses message type 8 (MSG_MEDIA_CONTROL).
+
+Payload:
+
+- byte 6: command code
+- bytes 7-14: signed 64-bit big-endian argument
+
+Total packet size: 15 bytes.
+
+Commands
+--------
+- 1 PLAY_PAUSE: toggle server playback state; argument ignored.
+- 2 PLAY: request play/resume; argument ignored.
+- 3 PAUSE: request pause; argument ignored.
+- 4 NEXT: skip to next item; argument ignored.
+- 5 PREVIOUS: skip to previous item; argument ignored.
+- 6 SEEK_RELATIVE_MS: seek relative by argument milliseconds, e.g. -30000 or 30000.
+- 7 VOLUME_UP: forward to other registered clients; argument ignored.
+- 8 VOLUME_DOWN: forward to other registered clients; argument ignored.
+
+Server behavior
+---------------
+Transport and seek commands are dispatched to a platform media controller on the server.
+
+Volume commands are not applied to server volume yet. They are forwarded to registered playback clients except the sender. This preserves the future setting where users explicitly allow clients to control server volume.
+
+Linux implementation
+--------------------
+Linux currently shells out to playerctl:
+
+- play-pause
+- play
+- pause
+- next
+- previous
+- position +/-seconds for relative seek
+
+This uses MPRIS through playerctl and is best-effort. If playerctl is not installed or no player supports the command, the command is logged and ignored.
+
+Windows implementation
+----------------------
+Windows currently shells out to PowerShell and sends media virtual key events through user32.dll:
+
+- VK_MEDIA_PLAY_PAUSE for PLAY_PAUSE, PLAY, and PAUSE
+- VK_MEDIA_NEXT_TRACK for NEXT
+- VK_MEDIA_PREV_TRACK for PREVIOUS
+
+Relative seek is ignored on Windows for now because generic seek support is not consistently exposed through simple system media keys.
+
+Compatibility
+-------------
+Malformed packets and unknown command codes are ignored by the parser.
+
+Commands are best-effort. There is no acknowledgement or capability negotiation yet.

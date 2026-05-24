@@ -10,6 +10,52 @@ pub const MSG_STATUS: u8 = 4;
 pub const MSG_STATUS_REQUEST: u8 = 5;
 pub const MSG_TIME_SYNC_REQUEST: u8 = 6;
 pub const MSG_TIME_SYNC_RESPONSE: u8 = 7;
+pub const MSG_MEDIA_CONTROL: u8 = 8;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MediaCommand {
+    PlayPause,
+    Play,
+    Pause,
+    Next,
+    Previous,
+    SeekRelativeMs,
+    VolumeUp,
+    VolumeDown,
+}
+
+impl MediaCommand {
+    pub fn from_code(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::PlayPause),
+            2 => Some(Self::Play),
+            3 => Some(Self::Pause),
+            4 => Some(Self::Next),
+            5 => Some(Self::Previous),
+            6 => Some(Self::SeekRelativeMs),
+            7 => Some(Self::VolumeUp),
+            8 => Some(Self::VolumeDown),
+            _ => None,
+        }
+    }
+
+    pub fn code(self) -> u8 {
+        match self {
+            Self::PlayPause => 1,
+            Self::Play => 2,
+            Self::Pause => 3,
+            Self::Next => 4,
+            Self::Previous => 5,
+            Self::SeekRelativeMs => 6,
+            Self::VolumeUp => 7,
+            Self::VolumeDown => 8,
+        }
+    }
+
+    pub fn is_volume(self) -> bool {
+        matches!(self, Self::VolumeUp | Self::VolumeDown)
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct StreamConfig {
@@ -35,6 +81,7 @@ pub enum ControlMessage {
     Status,
     StatusRequest,
     TimeSyncRequest { client_send_ms: u64 },
+    MediaControl { command: MediaCommand, argument: i64 },
 }
 
 pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
@@ -65,8 +112,29 @@ pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
                 ]),
             })
         }
+        MSG_MEDIA_CONTROL => {
+            if data.len() < 15 {
+                return None;
+            }
+            Some(ControlMessage::MediaControl {
+                command: MediaCommand::from_code(data[6])?,
+                argument: i64::from_be_bytes([
+                    data[7], data[8], data[9], data[10], data[11], data[12], data[13], data[14],
+                ]),
+            })
+        }
         _ => None,
     }
+}
+
+pub fn build_media_control_packet(command: MediaCommand, argument: i64) -> Bytes {
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 1 + 8);
+    buf.put_slice(&MAGIC);
+    buf.put_u8(VERSION);
+    buf.put_u8(MSG_MEDIA_CONTROL);
+    buf.put_u8(command.code());
+    buf.put_i64(argument);
+    buf.freeze()
 }
 
 pub fn build_config_packet(config: StreamConfig) -> Bytes {
@@ -171,6 +239,12 @@ mod tests {
             Some(ControlMessage::TimeSyncRequest { client_send_ms }) if client_send_ms == 0x0102_0304_0506_0708
         ));
 
+        let media_control = build_media_control_packet(MediaCommand::SeekRelativeMs, -30_000);
+        assert!(matches!(
+            parse_control_packet(&media_control),
+            Some(ControlMessage::MediaControl { command: MediaCommand::SeekRelativeMs, argument: -30_000 })
+        ));
+
         let mut invalid = Vec::new();
         invalid.extend_from_slice(b"NOPE");
         invalid.push(VERSION);
@@ -227,5 +301,16 @@ mod tests {
         assert_eq!(u64::from_be_bytes(bytes[6..14].try_into().unwrap()), 10);
         assert_eq!(u64::from_be_bytes(bytes[14..22].try_into().unwrap()), 20);
         assert_eq!(u64::from_be_bytes(bytes[22..30].try_into().unwrap()), 30);
+    }
+
+    #[test]
+    fn build_media_control_packet_contains_command_and_argument() {
+        let packet = build_media_control_packet(MediaCommand::VolumeDown, -1);
+        let bytes = packet.as_ref();
+        assert_eq!(&bytes[0..4], MAGIC.as_slice());
+        assert_eq!(bytes[4], VERSION);
+        assert_eq!(bytes[5], MSG_MEDIA_CONTROL);
+        assert_eq!(bytes[6], MediaCommand::VolumeDown.code());
+        assert_eq!(i64::from_be_bytes(bytes[7..15].try_into().unwrap()), -1);
     }
 }

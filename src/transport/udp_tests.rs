@@ -1,14 +1,28 @@
 #[cfg(test)]
 mod tests {
     use crate::control::messages::{
-        DEFAULT_STREAM_CONFIG, MAGIC, MSG_CONFIG, MSG_HELLO, MSG_KEEPALIVE, MSG_STATUS,
-        MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE, VERSION,
+        DEFAULT_STREAM_CONFIG, MAGIC, MSG_CONFIG, MSG_HELLO, MSG_KEEPALIVE, MSG_MEDIA_CONTROL,
+        MSG_STATUS, MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE, MediaCommand,
+        VERSION, build_media_control_packet,
     };
+    use crate::media_control::MediaController;
     use crate::transport::udp::UdpServer;
     use std::net::SocketAddr;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use tokio::time::{Duration, timeout};
     use tokio::net::UdpSocket;
+
+    #[derive(Default)]
+    struct RecordingMediaController {
+        commands: Mutex<Vec<(MediaCommand, i64)>>,
+    }
+
+    impl MediaController for RecordingMediaController {
+        fn handle(&self, command: MediaCommand, argument: i64) {
+            self.commands.lock().unwrap().push((command, argument));
+        }
+    }
 
     #[tokio::test]
     async fn udp_hello_receives_config() {
@@ -133,5 +147,80 @@ mod tests {
         ]);
         assert_eq!(returned_client_send, client_send_ms);
         assert!(server_send >= server_receive);
+    }
+
+    #[tokio::test]
+    async fn udp_media_transport_command_invokes_controller() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let media_controller = Arc::new(RecordingMediaController::default());
+        let server = Arc::new(
+            UdpServer::bind_with_media_controller(addr, config, 789, media_controller.clone())
+                .await
+                .unwrap(),
+        );
+        let server_addr = server.local_addr().unwrap();
+
+        let listener = Arc::clone(&server);
+        tokio::spawn(async move {
+            let _ = listener.run_listener().await;
+        });
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        client
+            .send_to(
+                &build_media_control_packet(MediaCommand::SeekRelativeMs, -30_000),
+                server_addr,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let commands = media_controller.commands.lock().unwrap();
+        assert_eq!(commands.as_slice(), &[(MediaCommand::SeekRelativeMs, -30_000)]);
+    }
+
+    #[tokio::test]
+    async fn udp_volume_command_forwards_to_other_clients_only() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let server = Arc::new(UdpServer::bind(addr, config, 789).await.unwrap());
+        let server_addr = server.local_addr().unwrap();
+
+        let listener = Arc::clone(&server);
+        tokio::spawn(async move {
+            let _ = listener.run_listener().await;
+        });
+
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut hello = Vec::new();
+        hello.extend_from_slice(&MAGIC);
+        hello.push(VERSION);
+        hello.push(MSG_HELLO);
+        sender.send_to(&hello, server_addr).await.unwrap();
+        receiver.send_to(&hello, server_addr).await.unwrap();
+
+        let mut buf = [0u8; 256];
+        let _ = sender.recv_from(&mut buf).await.unwrap();
+        let _ = receiver.recv_from(&mut buf).await.unwrap();
+
+        sender
+            .send_to(
+                &build_media_control_packet(MediaCommand::VolumeUp, 0),
+                server_addr,
+            )
+            .await
+            .unwrap();
+
+        let (len, _) = receiver.recv_from(&mut buf).await.unwrap();
+        assert_eq!(len, 15);
+        assert_eq!(&buf[0..4], MAGIC.as_slice());
+        assert_eq!(buf[4], VERSION);
+        assert_eq!(buf[5], MSG_MEDIA_CONTROL);
+        assert_eq!(buf[6], MediaCommand::VolumeUp.code());
+
+        let sender_recv = timeout(Duration::from_millis(200), sender.recv_from(&mut buf)).await;
+        assert!(sender_recv.is_err(), "sender should not receive its own forwarded volume command");
     }
 }

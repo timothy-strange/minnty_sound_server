@@ -1,7 +1,8 @@
 use crate::control::messages::{
-    ControlMessage, StreamConfig, build_config_packet, build_status_packet,
-    build_time_sync_response_packet, parse_control_packet,
+    ControlMessage, MediaCommand, StreamConfig, build_config_packet, build_media_control_packet,
+    build_status_packet, build_time_sync_response_packet, parse_control_packet,
 };
+use crate::media_control::{MediaController, PlatformMediaController};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ pub struct UdpServer {
     session_id: u64,
     streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
+    media_controller: Arc<dyn MediaController>,
 }
 
 impl UdpServer {
@@ -36,6 +38,21 @@ impl UdpServer {
         addr: SocketAddr,
         config: StreamConfig,
         session_id: u64,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::bind_with_media_controller(
+            addr,
+            config,
+            session_id,
+            Arc::new(PlatformMediaController),
+        )
+        .await
+    }
+
+    pub async fn bind_with_media_controller(
+        addr: SocketAddr,
+        config: StreamConfig,
+        session_id: u64,
+        media_controller: Arc<dyn MediaController>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let socket = UdpSocket::bind(addr).await?;
         Ok(Self {
@@ -49,6 +66,7 @@ impl UdpServer {
                 send_errors_window: 0,
                 last_summary: Instant::now(),
             })),
+            media_controller,
         })
     }
 
@@ -83,6 +101,9 @@ impl UdpServer {
                         );
                         let _ = self.socket.send_to(&packet, addr).await;
                     }
+                    ControlMessage::MediaControl { command, argument } => {
+                        self.handle_media_control(addr, command, argument).await;
+                    }
                 }
             }
         }
@@ -94,12 +115,7 @@ impl UdpServer {
     }
 
     pub async fn send_to_clients(&self, packet: &[u8]) {
-        let addresses = {
-            let mut clients = self.clients.lock().await;
-            let now = Instant::now();
-            clients.retain(|_, info| now.duration_since(info.last_seen) <= CLIENT_TIMEOUT);
-            clients.keys().copied().collect::<Vec<_>>()
-        };
+        let addresses = self.active_client_addresses(None).await;
 
         let client_count = addresses.len();
         let mut send_errors = 0u64;
@@ -140,6 +156,33 @@ impl UdpServer {
 
     pub fn set_streaming(&self, streaming: bool) {
         self.streaming.store(streaming, Ordering::Relaxed);
+    }
+
+    async fn handle_media_control(&self, sender: SocketAddr, command: MediaCommand, argument: i64) {
+        if command.is_volume() {
+            let packet = build_media_control_packet(command, argument);
+            self.send_to_clients_except(&packet, sender).await;
+        } else {
+            self.media_controller.handle(command, argument);
+        }
+    }
+
+    async fn send_to_clients_except(&self, packet: &[u8], excluded: SocketAddr) {
+        let addresses = self.active_client_addresses(Some(excluded)).await;
+        for addr in addresses {
+            let _ = self.socket.send_to(packet, addr).await;
+        }
+    }
+
+    async fn active_client_addresses(&self, excluded: Option<SocketAddr>) -> Vec<SocketAddr> {
+        let mut clients = self.clients.lock().await;
+        let now = Instant::now();
+        clients.retain(|_, info| now.duration_since(info.last_seen) <= CLIENT_TIMEOUT);
+        clients
+            .keys()
+            .copied()
+            .filter(|addr| Some(*addr) != excluded)
+            .collect::<Vec<_>>()
     }
 
     async fn register_playback_client(&self, addr: SocketAddr) {
