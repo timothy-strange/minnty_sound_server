@@ -3,8 +3,9 @@ use crate::control::messages::{
     build_config_packet, build_media_control_packet, build_now_playing_packet, build_status_packet,
     build_time_sync_response_packet, parse_control_packet,
 };
-use bytes::Bytes;
 use crate::media_control::{MediaController, PlatformMediaController};
+use crate::server_state::ServerState;
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -35,20 +36,32 @@ pub struct UdpServer {
     streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
     media_controller: Arc<dyn MediaController>,
+    server_state: Arc<ServerState>,
     latest_metadata_packet: Arc<Mutex<Option<Bytes>>>,
 }
 
 impl UdpServer {
+    #[cfg(test)]
     pub async fn bind(
         addr: SocketAddr,
         config: StreamConfig,
         session_id: u64,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::bind_with_state(addr, config, session_id, Arc::new(ServerState::new())).await
+    }
+
+    pub async fn bind_with_state(
+        addr: SocketAddr,
+        config: StreamConfig,
+        session_id: u64,
+        server_state: Arc<ServerState>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Self::bind_with_media_controller(
             addr,
             config,
             session_id,
             Arc::new(PlatformMediaController),
+            server_state,
         )
         .await
     }
@@ -58,6 +71,7 @@ impl UdpServer {
         config: StreamConfig,
         session_id: u64,
         media_controller: Arc<dyn MediaController>,
+        server_state: Arc<ServerState>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let socket = UdpSocket::bind(addr).await?;
         Ok(Self {
@@ -72,6 +86,7 @@ impl UdpServer {
                 last_summary: Instant::now(),
             })),
             media_controller,
+            server_state,
             latest_metadata_packet: Arc::new(Mutex::new(None)),
         })
     }
@@ -85,7 +100,10 @@ impl UdpServer {
                 match message {
                     ControlMessage::Hello => {
                         self.register_playback_client(addr).await;
-                        let _ = self.socket.send_to(&build_config_packet(self.config), addr).await;
+                        let _ = self
+                            .socket
+                            .send_to(&build_config_packet(self.config), addr)
+                            .await;
                         if let Some(packet) = self.latest_metadata_packet.lock().await.clone() {
                             let _ = self.socket.send_to(&packet, addr).await;
                         }
@@ -127,7 +145,12 @@ impl UdpServer {
                 let metadata = tokio::task::spawn_blocking(move || controller.now_playing())
                     .await
                     .unwrap_or(None);
-                if metadata == last_metadata && !matches!(metadata.as_ref().map(|m| m.playback_status), Some(PlaybackStatus::Playing)) {
+                if metadata == last_metadata
+                    && !matches!(
+                        metadata.as_ref().map(|m| m.playback_status),
+                        Some(PlaybackStatus::Playing)
+                    )
+                {
                     continue;
                 }
                 sequence = sequence.wrapping_add(1);
@@ -226,8 +249,17 @@ impl UdpServer {
                 forwarded,
                 errors
             );
+            if self.server_state.change_server_volume_from_clients() {
+                let sink = self.server_state.current_sink().await;
+                self.media_controller
+                    .adjust_volume(command, sink.as_deref());
+            }
         } else {
-            crate::log_info!("media control dispatching command={:?} argument={}", command, argument);
+            crate::log_info!(
+                "media control dispatching command={:?} argument={}",
+                command,
+                argument
+            );
             self.media_controller.handle(command, argument);
         }
     }
@@ -242,7 +274,11 @@ impl UdpServer {
         self.send_packet_to_addresses(packet, addresses).await
     }
 
-    async fn send_packet_to_addresses(&self, packet: &[u8], addresses: Vec<SocketAddr>) -> (usize, u64) {
+    async fn send_packet_to_addresses(
+        &self,
+        packet: &[u8],
+        addresses: Vec<SocketAddr>,
+    ) -> (usize, u64) {
         let forwarded = addresses.len();
         let mut send_errors = 0u64;
         for addr in addresses {
