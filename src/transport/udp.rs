@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
-const METADATA_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const METADATA_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 struct ClientInfo {
     last_seen: Instant,
