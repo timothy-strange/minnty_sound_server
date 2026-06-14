@@ -480,6 +480,17 @@
       text-align: left;
     }
 
+    .advanced-toggle::before {
+      content: "\25B8";
+      display: inline-block;
+      margin-right: 6px;
+      transition: transform 0.2s ease;
+    }
+
+    .advanced-toggle.open::before {
+      transform: rotate(90deg);
+    }
+
     .settings-advanced {
       display: none;
       border-top: 1px solid var(--help-border);
@@ -771,6 +782,7 @@
       lastFocusedBeforeSettings = document.activeElement;
       settingsModal.classList.add("open");
       advancedSettings.classList.remove("open");
+      advancedToggle.classList.remove("open");
       settingsClose.focus();
       loadSettings();
     }
@@ -1183,7 +1195,8 @@
       setServerVolumeFromClients(serverVolumeToggle.checked);
     });
     advancedToggle.addEventListener("click", () => {
-      advancedSettings.classList.toggle("open");
+      const open = advancedSettings.classList.toggle("open");
+      advancedToggle.classList.toggle("open", open);
     });
     frameDurationToggle.addEventListener("click", (e) => {
       const opt = e.target.closest(".theme-option");

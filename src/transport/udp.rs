@@ -37,6 +37,9 @@ pub struct UdpServer {
     // actually encodes; `config.frame_size` is only the startup default.
     frame_size: Arc<AtomicUsize>,
     session_id: u64,
+    // Human-friendly server name (the machine hostname) reported in STATUS replies so clients
+    // can show it instead of a bare IP for endpoints discovered by probing (USB/manual/LAN).
+    server_name: String,
     streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
     media_controller: Arc<dyn MediaController>,
@@ -84,6 +87,7 @@ impl UdpServer {
             frame_size: Arc::new(AtomicUsize::new(config.frame_size)),
             config,
             session_id,
+            server_name: gethostname::gethostname().to_string_lossy().into_owned(),
             streaming: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(Mutex::new(UdpStats {
                 frames_sent_window: 0,
@@ -121,6 +125,7 @@ impl UdpServer {
                         let packet = build_status_packet(
                             self.streaming.load(Ordering::Relaxed),
                             self.session_id,
+                            &self.server_name,
                         );
                         let _ = self.socket.send_to(&packet, addr).await;
                     }
