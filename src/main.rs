@@ -37,6 +37,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let (audio_controller, meters) = AudioController::new()?;
 
     let udp_addr = SocketAddr::from(([0, 0, 0, 0], config.udp_port));
+    log_network_addresses(config.udp_port);
     let server_state = Arc::new(ServerState::new());
     let udp_server = Arc::new(
         UdpServer::bind_with_state(udp_addr, config, session_id, Arc::clone(&server_state)).await?,
@@ -87,4 +88,26 @@ fn register_mdns(config: control::messages::StreamConfig) -> Option<ServiceDaemo
     .ok()?;
     let _ = mdns.register(info);
     Some(mdns)
+}
+
+fn log_network_addresses(udp_port: u16) {
+    crate::log_info!("network: listening on UDP 0.0.0.0:{}", udp_port);
+    match local_ip_address::list_afinet_netifas() {
+        Ok(addresses) => {
+            let mut ipv4 = addresses
+                .into_iter()
+                .filter(|(_, ip)| ip.is_ipv4())
+                .map(|(name, ip)| format!("{}={}:{}", name, ip, udp_port))
+                .collect::<Vec<_>>();
+            ipv4.sort();
+            if ipv4.is_empty() {
+                crate::log_info!("network: no local IPv4 interfaces detected");
+            } else {
+                crate::log_info!("network: local IPv4 endpoints {}", ipv4.join(", "));
+            }
+        }
+        Err(err) => {
+            crate::log_warn!("network: local interface enumeration failed: {}", err);
+        }
+    }
 }
