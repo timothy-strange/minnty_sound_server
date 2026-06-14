@@ -213,13 +213,19 @@ pub fn build_stream_packet(seq: u32, timestamp_ms: u64, payload: &[u8]) -> Bytes
     buf.freeze()
 }
 
-pub fn build_status_packet(streaming: bool, session_id: u64) -> Bytes {
-    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 1 + 8);
+pub fn build_status_packet(streaming: bool, session_id: u64, name: &str) -> Bytes {
+    // The trailing name is appended after the original fixed fields so older clients (which read
+    // only the fixed 15-byte prefix) keep working; newer clients read the name when present.
+    let name_bytes = name.as_bytes();
+    let name_len = name_bytes.len().min(u16::MAX as usize);
+    let mut buf = BytesMut::with_capacity(4 + 1 + 1 + 1 + 8 + 2 + name_len);
     buf.put_slice(&MAGIC);
     buf.put_u8(VERSION);
     buf.put_u8(MSG_STATUS);
     buf.put_u8(u8::from(streaming));
     buf.put_u64(session_id);
+    buf.put_u16(name_len as u16);
+    buf.put_slice(&name_bytes[..name_len]);
     buf.freeze()
 }
 
@@ -342,7 +348,7 @@ mod tests {
 
     #[test]
     fn build_status_packet_contains_state_and_session() {
-        let packet = build_status_packet(true, 0x1122_3344_5566_7788);
+        let packet = build_status_packet(true, 0x1122_3344_5566_7788, "studio-pc");
         let bytes = packet.as_ref();
         assert_eq!(&bytes[0..4], MAGIC.as_slice());
         assert_eq!(bytes[4], VERSION);
@@ -352,6 +358,8 @@ mod tests {
             bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
         ]);
         assert_eq!(session_id, 0x1122_3344_5566_7788);
+        let name_len = u16::from_be_bytes([bytes[15], bytes[16]]) as usize;
+        assert_eq!(&bytes[17..17 + name_len], b"studio-pc");
     }
 
     #[test]

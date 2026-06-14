@@ -51,9 +51,10 @@
       "server_volume_from_clients_label": "Change volume on server when volume is changed on clients",
       "advanced": "Advanced",
       "frame_duration_label": "Frame Duration",
+      "frame_duration_5ms": "5 ms",
       "frame_duration_10ms": "10 ms",
       "frame_duration_20ms": "20 ms",
-      "frame_duration_note": "Takes effect on the next stream start."
+      "frame_duration_note": "Takes effect on the next stream start. 5 ms is experimental: lowest latency, best over USB tether; may glitch on some devices or congested Wi-Fi."
     },
     "help": {
       "title": "Instructions",

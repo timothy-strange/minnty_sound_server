@@ -9,7 +9,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -32,7 +32,14 @@ pub struct UdpServer {
     socket: Arc<UdpSocket>,
     clients: Arc<Mutex<HashMap<SocketAddr, ClientInfo>>>,
     config: StreamConfig,
+    // Live frame size advertised to clients in the config packet. Tracks the user's frame
+    // duration setting so the client always decodes with the same frame size the stream
+    // actually encodes; `config.frame_size` is only the startup default.
+    frame_size: Arc<AtomicUsize>,
     session_id: u64,
+    // Human-friendly server name (the machine hostname) reported in STATUS replies so clients
+    // can show it instead of a bare IP for endpoints discovered by probing (USB/manual/LAN).
+    server_name: String,
     streaming: Arc<AtomicBool>,
     stats: Arc<Mutex<UdpStats>>,
     media_controller: Arc<dyn MediaController>,
@@ -77,8 +84,10 @@ impl UdpServer {
         Ok(Self {
             socket: Arc::new(socket),
             clients: Arc::new(Mutex::new(HashMap::new())),
+            frame_size: Arc::new(AtomicUsize::new(config.frame_size)),
             config,
             session_id,
+            server_name: gethostname::gethostname().to_string_lossy().into_owned(),
             streaming: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(Mutex::new(UdpStats {
                 frames_sent_window: 0,
@@ -100,10 +109,11 @@ impl UdpServer {
                 match message {
                     ControlMessage::Hello => {
                         self.register_playback_client(addr).await;
-                        let _ = self
-                            .socket
-                            .send_to(&build_config_packet(self.config), addr)
-                            .await;
+                        let config = StreamConfig {
+                            frame_size: self.frame_size.load(Ordering::Relaxed),
+                            ..self.config
+                        };
+                        let _ = self.socket.send_to(&build_config_packet(config), addr).await;
                         if let Some(packet) = self.latest_metadata_packet.lock().await.clone() {
                             let _ = self.socket.send_to(&packet, addr).await;
                         }
@@ -115,6 +125,7 @@ impl UdpServer {
                         let packet = build_status_packet(
                             self.streaming.load(Ordering::Relaxed),
                             self.session_id,
+                            &self.server_name,
                         );
                         let _ = self.socket.send_to(&packet, addr).await;
                     }
@@ -228,6 +239,12 @@ impl UdpServer {
 
     pub fn set_streaming(&self, streaming: bool) {
         self.streaming.store(streaming, Ordering::Relaxed);
+    }
+
+    /// Update the frame size advertised to clients in the config packet so it matches the
+    /// frame size the stream will encode at after the next stream start.
+    pub fn set_frame_size(&self, frame_size: usize) {
+        self.frame_size.store(frame_size, Ordering::Relaxed);
     }
 
     async fn handle_media_control(&self, sender: SocketAddr, command: MediaCommand, argument: i64) {

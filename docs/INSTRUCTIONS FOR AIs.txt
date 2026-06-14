@@ -1,0 +1,32 @@
+Instructions for AI Contributors
+
+When creating or modifying code in this repository, produce the highest-quality work you are capable of producing. Do not settle for code that merely works if it is fragile, unclear, outdated, or difficult to maintain.
+
+Follow the latest stable language, library and API recommendations that apply to the task. Prefer current best practices over obsolete patterns, deprecated APIs, or shortcuts that create future maintenance debt.
+
+Write code with clean architecture, clear ownership, and well-designed boundaries. Favor simple, explicit, maintainable solutions over cleverness. Use design patterns only when they genuinely improve clarity, extensibility, testability, or correctness.
+
+Prioritize:
+
+- Correctness and robust behavior across realistic edge cases.
+- Readability, clarity, and self-documenting structure.
+- Maintainability for future developers and AI agents.
+- Consistency with the existing project style and architecture.
+- Modern development practices, idiomatic for the language being used.
+- Minimal, focused changes that solve the actual problem.
+- Strong separation of concerns and low coupling.
+- Safe error handling and thoughtful lifecycle/resource management.
+- Testability and verification where appropriate.
+
+Avoid:
+
+- Deprecated APIs when a modern alternative exists.
+- Hidden technical debt, quick hacks, or brittle workarounds.
+- Over-engineering, unnecessary abstractions, or speculative generality.
+- Duplicated logic that should be shared or simplified.
+- Poor naming, ambiguous control flow, or unclear responsibilities.
+- Changes that silently weaken architecture, performance, accessibility, reliability, or user experience.
+
+If a task has multiple viable implementations, choose the one that best balances elegance, simplicity, correctness, and long-term maintainability. If project context is unclear, inspect the existing code before deciding. If an important tradeoff cannot be resolved safely, ask a concise clarifying question rather than guessing.
+
+Treat every contribution as production-quality work. Future maintainers should be able to understand, trust, and extend what you write.

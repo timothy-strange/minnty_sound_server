@@ -86,7 +86,8 @@ mod tests {
 
         let mut buf = [0u8; 256];
         let (len, _) = client.recv_from(&mut buf).await.unwrap();
-        assert_eq!(len, 15);
+        // Fixed prefix (15 bytes) plus the trailing name field (len u16 + name bytes).
+        assert!(len >= 17);
         assert_eq!(&buf[0..4], MAGIC.as_slice());
         assert_eq!(buf[4], VERSION);
         assert_eq!(buf[5], MSG_STATUS);
@@ -95,6 +96,8 @@ mod tests {
             buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14],
         ]);
         assert_eq!(returned_session, session_id);
+        let name_len = u16::from_be_bytes([buf[15], buf[16]]) as usize;
+        assert_eq!(len, 17 + name_len);
     }
 
     #[tokio::test]
