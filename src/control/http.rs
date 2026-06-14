@@ -187,14 +187,15 @@ impl StreamManager {
     }
 
     pub fn set_frame_duration_ms(&self, ms: u32) -> Result<(), String> {
-        if ms != 10 && ms != 20 {
+        if ms != 5 && ms != 10 && ms != 20 {
             return Err(format!(
-                "Unsupported frame duration: {}ms. Must be 10 or 20.",
+                "Unsupported frame duration: {}ms. Must be 5, 10 or 20.",
                 ms
             ));
         }
         let frame_size = ms as usize * self.config.sample_rate as usize / 1000;
         self.frame_size.store(frame_size, Ordering::Relaxed);
+        self.udp.set_frame_size(frame_size);
         Ok(())
     }
 

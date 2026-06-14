@@ -512,6 +512,16 @@
       font-size: 12px;
       color: var(--muted);
     }
+
+    /* Frame-duration toggle has three equal-width options (5/10/20 ms). */
+    #frameDurationToggle .theme-option {
+      flex: 1;
+      text-align: center;
+    }
+
+    #frameDurationToggle .settings-slider {
+      width: 33.3333%;
+    }
   </style>
 </head>
 
@@ -583,6 +593,7 @@
         <div class="settings-row">
           <span id="settingsFrameDurationLabel" class="settings-label"></span>
           <div id="frameDurationToggle" class="theme-toggle" role="group" aria-label="Frame duration">
+            <span class="theme-option" data-value="5" tabindex="0" role="radio"></span>
             <span class="theme-option" data-value="10" tabindex="0" role="radio"></span>
             <span class="theme-option" data-value="20" tabindex="0" role="radio"></span>
             <div class="settings-slider"></div>
@@ -697,9 +708,12 @@
       return typeof node === "string" ? node : fallback;
     }
 
+    const FRAME_DURATION_OPTIONS = [5, 10, 20];
+
     function setFrameDurationUi(ms) {
       currentFrameDurationMs = ms;
-      frameDurationSlider.style.transform = ms === 10 ? "translateX(0%)" : "translateX(100%)";
+      const index = Math.max(0, FRAME_DURATION_OPTIONS.indexOf(ms));
+      frameDurationSlider.style.transform = `translateX(${index * 100}%)`;
       frameDurationToggle.querySelectorAll(".theme-option").forEach(opt => {
         opt.style.color = parseInt(opt.dataset.value) === ms ? "var(--fg)" : "var(--muted)";
       });
@@ -847,8 +861,10 @@
       advancedToggle.textContent = t("web.settings.advanced");
       settingsFrameDurationLabel.textContent = t("web.settings.frame_duration_label");
       settingsFrameDurationNote.textContent = t("web.settings.frame_duration_note");
+      const opt5 = frameDurationToggle.querySelector(".theme-option[data-value='5']");
       const opt10 = frameDurationToggle.querySelector(".theme-option[data-value='10']");
       const opt20 = frameDurationToggle.querySelector(".theme-option[data-value='20']");
+      if (opt5) opt5.textContent = t("web.settings.frame_duration_5ms");
       if (opt10) opt10.textContent = t("web.settings.frame_duration_10ms");
       if (opt20) opt20.textContent = t("web.settings.frame_duration_20ms");
       helpBtnText.textContent = t("web.buttons.help");
@@ -1173,7 +1189,7 @@
       const opt = e.target.closest(".theme-option");
       if (!opt) return;
       const ms = parseInt(opt.dataset.value);
-      if (ms === 10 || ms === 20) setFrameDuration(ms);
+      if (FRAME_DURATION_OPTIONS.includes(ms)) setFrameDuration(ms);
     });
     frameDurationToggle.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -1181,7 +1197,7 @@
         const opt = e.target.closest(".theme-option");
         if (opt) {
           const ms = parseInt(opt.dataset.value);
-          if (ms === 10 || ms === 20) setFrameDuration(ms);
+          if (FRAME_DURATION_OPTIONS.includes(ms)) setFrameDuration(ms);
         }
       }
     });

@@ -1,0 +1,152 @@
+MINNTY SOUND SERVER — PROJECT CONTEXT
+======================================
+
+PURPOSE
+-------
+Minnty Sound Server is a local-network audio streaming application written in Rust.
+It captures audio output from a PC (whatever is playing through the speakers) and
+streams it over UDP to client devices on the same network (e.g. a phone or tablet),
+using the Opus codec for compression.
+
+
+HOW IT WORKS — HIGH LEVEL
+--------------------------
+The binary runs in two modes:
+
+1. Launcher mode (default, no flags):
+   - Shows a system tray icon (GTK on Linux, tray-icon on Windows)
+   - Spawns itself as a child process in --server mode
+   - Opens a browser to http://127.0.0.1:3000
+
+2. Server mode (--server flag):
+   - Captures audio via PulseAudio (Linux) or WASAPI loopback (Windows)
+   - Encodes PCM frames with Opus
+   - Streams encoded audio over UDP to registered clients on port 40110
+   - Runs an Axum HTTP server on 127.0.0.1:3000 with an embedded web UI
+   - Advertises itself on the LAN via mDNS (_minnty._udp.local.)
+
+
+AUDIO PIPELINE
+--------------
+Audio backend → PcmFrame (raw i16 PCM + timestamp_ms)
+  → AudioController (async Tokio, manages audio thread)
+    → StreamManager (start/stop, frame scheduling)
+      → OpusEncoder (encodes per-frame)
+        → UdpServer (sends to all registered clients)
+
+Frame sizes: 10ms (480 samples @ 48kHz stereo), 20ms (960 samples), or 5ms
+(240 samples, experimental — lowest latency, best over USB tether).
+The frame duration can be changed from the web UI without restarting the server.
+
+NOTE: a connected client only learns the frame size from the CONFIG packet sent
+in reply to its HELLO (see UDP CONTROL PROTOCOL below). It is NOT pushed on change.
+After changing the frame duration, each client must DISCONNECT AND RECONNECT to pick
+up the new size; merely restarting the stream is not enough. A client left connected
+across a frame-size change will decode with the old size, fail every frame as
+wrong-sized, and report "No audio packets".
+
+
+UDP CONTROL PROTOCOL
+--------------------
+Clients discover the server via mDNS, then communicate over UDP:
+
+- HELLO      → client sends to register for audio; server replies with CONFIG.
+               CONFIG carries the CURRENT frame size, so a reconnect (fresh HELLO)
+               is how a client picks up a frame-duration change (see Frame sizes above).
+- KEEPALIVE  → client sends periodically to stay registered (timeout: 10s)
+- STATUS_REQUEST → sent from a separate socket just to check liveness (does NOT
+                   register as a playback client — intentional design decision)
+- STATUS     → server reply to STATUS_REQUEST; includes session_id (u64 random,
+               changes on restart so clients can detect server restarts)
+- CONFIG     → server sends stream parameters (sample rate, channels, frame size)
+
+Audio packet format: [VERSION (1B) | seq (4B) | timestamp_ms (8B) | payload_len (2B) | opus_bytes]
+Timestamps are wallclock ms since UNIX epoch, applied at capture time.
+
+
+WEB UI
+------
+Single-page app embedded in the binary (src/web/index.html).
+- Lists audio output devices with real-time peak level meters
+- Includes a "Calibration Stream" (synthetic drum kit — kick/snare/hi-hat generated
+  procedurally at 100 BPM) for testing without real audio
+- Start/Stop streaming buttons
+- Frame duration selector (5ms / 10ms / 20ms; 5ms experimental)
+- Light/dark theme toggle
+- Optional network gap injection UI (--features net_impairment_ui)
+
+HTTP API endpoints:
+  GET  /api/levels          — peak levels per device
+  GET  /api/stream/status   — is streaming active?
+  POST /api/stream/start    — start stream { "sink": "device_name" }
+  POST /api/stream/stop     — stop stream
+  GET  /api/settings        — current frame duration
+  POST /api/settings        — change frame duration
+  GET  /api/i18n            — localization strings
+  GET  /api/features        — feature flags
+
+
+SOURCE LAYOUT
+-------------
+src/
+  main.rs                   — entry point, launcher vs server dispatch
+  audio/
+    controller.rs           — AudioController (async wrapper around audio thread)
+    capture.rs              — PcmFrame, CaptureSession types
+    linux_pulse.rs          — PulseAudio backend (Linux)
+    backend/windows.rs      — WASAPI loopback backend (Windows)
+  control/
+    http.rs                 — StreamManager, HTTP route handlers
+    messages.rs             — protocol message types, packet builders, DEFAULT_STREAM_CONFIG
+  encode/opus.rs            — OpusEncoder wrapper
+  transport/udp.rs          — UdpServer, client registration, packet dispatch
+  web/
+    mod.rs                  — Axum server setup, AppState
+    index.html              — embedded frontend SPA
+  launcher/
+    linux.rs                — GTK tray launcher
+    windows.rs              — Windows tray launcher
+  logging.rs                — log_info!/log_warn! macros (UTC timestamps)
+  i18n.rs                   — localization helpers
+  testing/net_impairment.rs — network gap injection (feature-gated)
+
+dev_notes/                  — developer notes, logs, issues, protocol docs
+repo_notes/                 — handoff docs (windows_handoff.txt, liveness protocol notes)
+
+
+KEY CONSTANTS (src/control/messages.rs)
+----------------------------------------
+UDP port:       40110
+Sample rate:    48,000 Hz
+Channels:       2 (stereo)
+Default frame:  480 samples (10ms)
+Client timeout: 10 seconds (no keepalive → dropped)
+mDNS type:      _minnty._udp.local.
+
+
+PLATFORM STATUS
+---------------
+Linux:   Fully working (PulseAudio, GTK tray)
+Windows: Builds and cross-compiles from Linux; WASAPI + tray implemented but
+         not yet fully runtime-tested on real Windows hardware
+
+
+BUILD
+-----
+cargo build                                    — standard build
+cargo build --features net_impairment_ui       — include network gap test UI
+cargo check --target x86_64-pc-windows-gnu    — Windows cross-check from Linux
+cargo test                                     — unit tests
+
+
+NOTABLE DESIGN DECISIONS
+-------------------------
+- Liveness vs. playback separation: STATUS_REQUEST uses a separate socket and
+  does not register the sender as an audio client. This prevents health checks
+  from accidentally receiving audio packets.
+- Session ID: random u64 generated at startup, included in STATUS replies.
+  Clients use it to detect server restarts.
+- Meter lifecycle: level meters run while idle (for UI feedback) and are stopped
+  during active capture to avoid conflicts.
+- Calibration Stream: procedurally generated drums, no sample files needed.
+  Useful for end-to-end testing of the audio pipeline.
