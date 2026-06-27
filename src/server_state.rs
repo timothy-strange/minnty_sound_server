@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 
 pub struct ServerState {
     change_server_volume_from_clients: AtomicBool,
+    calibration_streaming: AtomicBool,
     current_sink: Mutex<Option<String>>,
 }
 
@@ -10,6 +11,7 @@ impl ServerState {
     pub fn new() -> Self {
         Self {
             change_server_volume_from_clients: AtomicBool::new(false),
+            calibration_streaming: AtomicBool::new(false),
             current_sink: Mutex::new(None),
         }
     }
@@ -22,6 +24,14 @@ impl ServerState {
     pub fn set_change_server_volume_from_clients(&self, enabled: bool) {
         self.change_server_volume_from_clients
             .store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn calibration_streaming(&self) -> bool {
+        self.calibration_streaming.load(Ordering::Relaxed)
+    }
+
+    pub fn set_calibration_streaming(&self, enabled: bool) {
+        self.calibration_streaming.store(enabled, Ordering::Relaxed);
     }
 
     pub async fn current_sink(&self) -> Option<String> {

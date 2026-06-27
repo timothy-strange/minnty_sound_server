@@ -94,7 +94,7 @@ mod platform {
         argument: i64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let connection = Connection::new_session()?;
-        let player = find_player_name(&connection)?;
+        let player = find_player(&connection)?.name;
         let proxy = connection.with_proxy(
             player.as_str(),
             "/org/mpris/MediaPlayer2",
@@ -182,17 +182,87 @@ mod platform {
         }
     }
 
-    fn find_player_name(connection: &Connection) -> Result<String, Box<dyn std::error::Error>> {
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct PlayerCandidate {
+        name: String,
+        playback_status: PlaybackStatus,
+        has_metadata: bool,
+    }
+
+    fn find_player(connection: &Connection) -> Result<PlayerCandidate, Box<dyn std::error::Error>> {
         let dbus = connection.with_proxy(
             "org.freedesktop.DBus",
             "/org/freedesktop/DBus",
             Duration::from_secs(2),
         );
         let (names,): (Vec<String>,) = dbus.method_call("org.freedesktop.DBus", "ListNames", ())?;
-        names
+        select_player(
+            names
+                .into_iter()
+                .filter(|name| name.starts_with("org.mpris.MediaPlayer2."))
+                .map(|name| read_player_candidate(connection, name))
+                .collect::<Vec<_>>(),
+        )
+        .ok_or_else(|| "no MPRIS media players found".into())
+    }
+
+    fn read_player_candidate(connection: &Connection, name: String) -> PlayerCandidate {
+        let proxy = connection.with_proxy(
+            name.as_str(),
+            "/org/mpris/MediaPlayer2",
+            Duration::from_secs(2),
+        );
+        let all_props: Result<(HashMap<String, Variant<Box<dyn RefArg>>>,), _> = proxy.method_call(
+            "org.freedesktop.DBus.Properties",
+            "GetAll",
+            ("org.mpris.MediaPlayer2.Player",),
+        );
+        let Ok((all_props,)) = all_props else {
+            return PlayerCandidate {
+                name,
+                playback_status: PlaybackStatus::Unknown,
+                has_metadata: false,
+            };
+        };
+        PlayerCandidate {
+            name,
+            playback_status: parse_playback_status(
+                all_props.get("PlaybackStatus").and_then(|v| v.0.as_str()),
+            ),
+            has_metadata: all_props
+                .get("Metadata")
+                .and_then(|v| dbus::arg::cast::<HashMap<String, Variant<Box<dyn RefArg>>>>(&*v.0))
+                .map(metadata_has_display_text)
+                .unwrap_or(false),
+        }
+    }
+
+    fn metadata_has_display_text(metadata: &HashMap<String, Variant<Box<dyn RefArg>>>) -> bool {
+        metadata
+            .get("xesam:title")
+            .and_then(|v| v.0.as_str())
+            .is_some_and(|title| !title.trim().is_empty())
+            || metadata
+                .get("xesam:artist")
+                .and_then(|v| v.0.as_iter())
+                .and_then(|mut it| it.next().and_then(|v| v.as_str()))
+                .is_some_and(|artist| !artist.trim().is_empty())
+    }
+
+    fn select_player(candidates: Vec<PlayerCandidate>) -> Option<PlayerCandidate> {
+        candidates
             .into_iter()
-            .find(|name| name.starts_with("org.mpris.MediaPlayer2."))
-            .ok_or_else(|| "no MPRIS media players found".into())
+            .max_by_key(|candidate| player_selection_score(candidate))
+    }
+
+    fn player_selection_score(candidate: &PlayerCandidate) -> (u8, bool) {
+        let status_score = match candidate.playback_status {
+            PlaybackStatus::Playing => 3,
+            PlaybackStatus::Paused => 2,
+            PlaybackStatus::Stopped => 1,
+            PlaybackStatus::Unknown => 0,
+        };
+        (status_score, candidate.has_metadata)
     }
 
     pub fn now_playing() -> Option<NowPlayingMetadata> {
@@ -201,7 +271,7 @@ mod platform {
 
     fn read_now_playing() -> Result<Option<NowPlayingMetadata>, Box<dyn std::error::Error>> {
         let connection = Connection::new_session()?;
-        let player = find_player_name(&connection)?;
+        let player = find_player(&connection)?.name;
         let proxy = connection.with_proxy(
             player.as_str(),
             "/org/mpris/MediaPlayer2",
@@ -275,7 +345,9 @@ mod platform {
 
     #[cfg(test)]
     mod tests {
-        use super::{parse_playback_status, refarg_microseconds_to_ms};
+        use super::{
+            PlayerCandidate, parse_playback_status, refarg_microseconds_to_ms, select_player,
+        };
         use crate::control::messages::PlaybackStatus;
 
         #[test]
@@ -304,6 +376,80 @@ mod platform {
                 PlaybackStatus::Unknown
             );
             assert_eq!(parse_playback_status(None), PlaybackStatus::Unknown);
+        }
+
+        #[test]
+        fn select_player_prefers_playing_player_over_paused_player() {
+            let selected = select_player(vec![
+                candidate(
+                    "org.mpris.MediaPlayer2.firefox",
+                    PlaybackStatus::Paused,
+                    true,
+                ),
+                candidate(
+                    "org.mpris.MediaPlayer2.spotify",
+                    PlaybackStatus::Playing,
+                    true,
+                ),
+            ])
+            .unwrap();
+
+            assert_eq!(selected.name, "org.mpris.MediaPlayer2.spotify");
+        }
+
+        #[test]
+        fn select_player_prefers_paused_player_when_none_are_playing() {
+            let selected = select_player(vec![
+                candidate(
+                    "org.mpris.MediaPlayer2.firefox",
+                    PlaybackStatus::Stopped,
+                    true,
+                ),
+                candidate(
+                    "org.mpris.MediaPlayer2.spotify",
+                    PlaybackStatus::Paused,
+                    true,
+                ),
+            ])
+            .unwrap();
+
+            assert_eq!(selected.name, "org.mpris.MediaPlayer2.spotify");
+        }
+
+        #[test]
+        fn select_player_prefers_metadata_with_same_status() {
+            let selected = select_player(vec![
+                candidate(
+                    "org.mpris.MediaPlayer2.empty",
+                    PlaybackStatus::Playing,
+                    false,
+                ),
+                candidate(
+                    "org.mpris.MediaPlayer2.spotify",
+                    PlaybackStatus::Playing,
+                    true,
+                ),
+            ])
+            .unwrap();
+
+            assert_eq!(selected.name, "org.mpris.MediaPlayer2.spotify");
+        }
+
+        #[test]
+        fn select_player_returns_none_for_no_candidates() {
+            assert!(select_player(Vec::new()).is_none());
+        }
+
+        fn candidate(
+            name: &str,
+            playback_status: PlaybackStatus,
+            has_metadata: bool,
+        ) -> PlayerCandidate {
+            PlayerCandidate {
+                name: name.to_string(),
+                playback_status,
+                has_metadata,
+            }
         }
     }
 }

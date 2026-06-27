@@ -2,8 +2,8 @@
 mod tests {
     use crate::control::messages::{
         DEFAULT_STREAM_CONFIG, MAGIC, MSG_CONFIG, MSG_HELLO, MSG_KEEPALIVE, MSG_MEDIA_CONTROL,
-        MSG_STATUS, MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST, MSG_TIME_SYNC_RESPONSE,
-        MediaCommand, VERSION, build_media_control_packet,
+        MSG_NOW_PLAYING, MSG_STATUS, MSG_STATUS_REQUEST, MSG_TIME_SYNC_REQUEST,
+        MSG_TIME_SYNC_RESPONSE, MediaCommand, PlaybackStatus, VERSION, build_media_control_packet,
     };
     use crate::media_control::MediaController;
     use crate::transport::udp::UdpServer;
@@ -300,5 +300,44 @@ mod tests {
                 Some("alsa_output.test".to_string())
             )]
         );
+    }
+
+    #[tokio::test]
+    async fn udp_hello_receives_latest_calibration_now_playing() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let server = Arc::new(UdpServer::bind(addr, config, 789).await.unwrap());
+        let server_addr = server.local_addr().unwrap();
+        server.publish_calibration_now_playing().await;
+
+        let listener = Arc::clone(&server);
+        tokio::spawn(async move {
+            let _ = listener.run_listener().await;
+        });
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut hello = Vec::new();
+        hello.extend_from_slice(&MAGIC);
+        hello.push(VERSION);
+        hello.push(MSG_HELLO);
+        client.send_to(&hello, server_addr).await.unwrap();
+
+        let mut buf = [0u8; 256];
+        let _ = client.recv_from(&mut buf).await.unwrap();
+        let (len, _) = client.recv_from(&mut buf).await.unwrap();
+
+        assert_eq!(&buf[0..4], MAGIC.as_slice());
+        assert_eq!(buf[4], VERSION);
+        assert_eq!(buf[5], MSG_NOW_PLAYING);
+        assert_eq!(buf[14], PlaybackStatus::Playing.code());
+        let artist_len = u16::from_be_bytes([buf[15], buf[16]]) as usize;
+        let title_len = u16::from_be_bytes([buf[17], buf[18]]) as usize;
+        assert_eq!(artist_len, 0);
+        assert_eq!(title_len, "Calibration stream".len());
+        assert_eq!(
+            std::str::from_utf8(&buf[19..19 + title_len]).unwrap(),
+            "Calibration stream"
+        );
+        assert_eq!(len, 19 + title_len + 16);
     }
 }

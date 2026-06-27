@@ -9,7 +9,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -17,6 +17,7 @@ use tokio::time::sleep;
 
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 const METADATA_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const CALIBRATION_METADATA_TITLE: &str = "Calibration stream";
 
 struct ClientInfo {
     last_seen: Instant,
@@ -45,6 +46,7 @@ pub struct UdpServer {
     media_controller: Arc<dyn MediaController>,
     server_state: Arc<ServerState>,
     latest_metadata_packet: Arc<Mutex<Option<Bytes>>>,
+    metadata_sequence: Arc<AtomicU64>,
 }
 
 impl UdpServer {
@@ -97,6 +99,7 @@ impl UdpServer {
             media_controller,
             server_state,
             latest_metadata_packet: Arc::new(Mutex::new(None)),
+            metadata_sequence: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -151,14 +154,17 @@ impl UdpServer {
 
     pub fn start_metadata_broadcast(self: Arc<Self>) {
         tokio::spawn(async move {
-            let mut sequence = 0u64;
             let mut last_metadata: Option<NowPlayingMetadata> = None;
             loop {
                 sleep(METADATA_POLL_INTERVAL).await;
-                let controller = Arc::clone(&self.media_controller);
-                let metadata = tokio::task::spawn_blocking(move || controller.now_playing())
-                    .await
-                    .unwrap_or(None);
+                let metadata = if self.server_state.calibration_streaming() {
+                    Some(calibration_now_playing_metadata())
+                } else {
+                    let controller = Arc::clone(&self.media_controller);
+                    tokio::task::spawn_blocking(move || controller.now_playing())
+                        .await
+                        .unwrap_or(None)
+                };
                 if metadata == last_metadata
                     && !matches!(
                         metadata.as_ref().map(|m| m.playback_status),
@@ -167,7 +173,6 @@ impl UdpServer {
                 {
                     continue;
                 }
-                sequence = sequence.wrapping_add(1);
                 let packet_metadata = metadata.clone().unwrap_or(NowPlayingMetadata {
                     artist: String::new(),
                     title: String::new(),
@@ -176,9 +181,8 @@ impl UdpServer {
                     duration_ms: None,
                     track_id: None,
                 });
-                let packet = build_now_playing_packet(sequence, &packet_metadata);
-                *self.latest_metadata_packet.lock().await = Some(packet.clone());
-                let (sent, errors) = self.send_packet_to_clients(&packet).await;
+                let (sequence, sent, errors) =
+                    self.publish_now_playing_metadata(&packet_metadata).await;
                 crate::log_info!(
                     "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} positionMs={:?} durationMs={:?} clients={} sendErrors={}",
                     sequence,
@@ -193,6 +197,48 @@ impl UdpServer {
                 last_metadata = metadata;
             }
         });
+    }
+
+    pub async fn publish_calibration_now_playing(&self) {
+        let metadata = calibration_now_playing_metadata();
+        let (sequence, sent, errors) = self.publish_now_playing_metadata(&metadata).await;
+        crate::log_info!(
+            "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} positionMs={:?} durationMs={:?} clients={} sendErrors={}",
+            sequence,
+            metadata.artist,
+            metadata.title,
+            metadata.playback_status,
+            metadata.position_ms,
+            metadata.duration_ms,
+            sent,
+            errors
+        );
+    }
+
+    pub async fn clear_now_playing(&self) {
+        let metadata = NowPlayingMetadata {
+            artist: String::new(),
+            title: String::new(),
+            playback_status: PlaybackStatus::Unknown,
+            position_ms: None,
+            duration_ms: None,
+            track_id: None,
+        };
+        let _ = self.publish_now_playing_metadata(&metadata).await;
+    }
+
+    async fn publish_now_playing_metadata(
+        &self,
+        metadata: &NowPlayingMetadata,
+    ) -> (u64, usize, u64) {
+        let sequence = self
+            .metadata_sequence
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        let packet = build_now_playing_packet(sequence, metadata);
+        *self.latest_metadata_packet.lock().await = Some(packet.clone());
+        let (sent, errors) = self.send_packet_to_clients(&packet).await;
+        (sequence, sent, errors)
     }
 
     #[cfg(test)]
@@ -335,6 +381,17 @@ impl UdpServer {
         if let Some(client) = clients.get_mut(&addr) {
             client.last_seen = Instant::now();
         }
+    }
+}
+
+fn calibration_now_playing_metadata() -> NowPlayingMetadata {
+    NowPlayingMetadata {
+        artist: String::new(),
+        title: CALIBRATION_METADATA_TITLE.to_string(),
+        playback_status: PlaybackStatus::Playing,
+        position_ms: None,
+        duration_ms: None,
+        track_id: None,
     }
 }
 

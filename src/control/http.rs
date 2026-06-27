@@ -182,6 +182,11 @@ impl StreamManager {
                 None
             })
             .await;
+        self.server_state
+            .set_calibration_streaming(source == StreamSource::Calibration);
+        if source == StreamSource::Calibration {
+            self.udp.publish_calibration_now_playing().await;
+        }
 
         Ok(())
     }
@@ -215,6 +220,10 @@ impl StreamManager {
 
         if source == Some(StreamSource::Capture) {
             self.audio.stop_capture().await?;
+        }
+        self.server_state.set_calibration_streaming(false);
+        if source == Some(StreamSource::Calibration) {
+            self.udp.clear_now_playing().await;
         }
         self.udp.set_streaming(false);
         self.server_state.set_current_sink(None).await;
