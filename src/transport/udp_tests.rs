@@ -295,7 +295,10 @@ mod tests {
         let adjustments = media_controller.volume_adjustments.lock().unwrap();
         assert_eq!(
             adjustments.as_slice(),
-            &[(MediaCommand::VolumeDown, Some("alsa_output.test".to_string()))]
+            &[(
+                MediaCommand::VolumeDown,
+                Some("alsa_output.test".to_string())
+            )]
         );
     }
 }

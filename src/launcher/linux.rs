@@ -437,5 +437,9 @@ const ICON_WIDTH: u32 = 32;
 const ICON_HEIGHT: u32 = 32;
 
 fn build_launcher_icon() -> Result<Icon, Box<dyn std::error::Error>> {
-    Ok(Icon::from_rgba(ICON_RGBA.to_vec(), ICON_WIDTH, ICON_HEIGHT)?)
+    Ok(Icon::from_rgba(
+        ICON_RGBA.to_vec(),
+        ICON_WIDTH,
+        ICON_HEIGHT,
+    )?)
 }

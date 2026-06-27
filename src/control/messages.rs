@@ -111,8 +111,13 @@ pub enum ControlMessage {
     KeepAlive,
     Status,
     StatusRequest,
-    TimeSyncRequest { client_send_ms: u64 },
-    MediaControl { command: MediaCommand, argument: i64 },
+    TimeSyncRequest {
+        client_send_ms: u64,
+    },
+    MediaControl {
+        command: MediaCommand,
+        argument: i64,
+    },
 }
 
 pub fn parse_control_packet(data: &[u8]) -> Option<ControlMessage> {
@@ -299,19 +304,28 @@ mod tests {
         let media_control = build_media_control_packet(MediaCommand::SeekRelativeMs, -30_000);
         assert!(matches!(
             parse_control_packet(&media_control),
-            Some(ControlMessage::MediaControl { command: MediaCommand::SeekRelativeMs, argument: -30_000 })
+            Some(ControlMessage::MediaControl {
+                command: MediaCommand::SeekRelativeMs,
+                argument: -30_000
+            })
         ));
 
         let absolute_seek = build_media_control_packet(MediaCommand::SeekAbsoluteMs, 60_000);
         assert!(matches!(
             parse_control_packet(&absolute_seek),
-            Some(ControlMessage::MediaControl { command: MediaCommand::SeekAbsoluteMs, argument: 60_000 })
+            Some(ControlMessage::MediaControl {
+                command: MediaCommand::SeekAbsoluteMs,
+                argument: 60_000
+            })
         ));
 
         let stop = build_media_control_packet(MediaCommand::Stop, 0);
         assert!(matches!(
             parse_control_packet(&stop),
-            Some(ControlMessage::MediaControl { command: MediaCommand::Stop, argument: 0 })
+            Some(ControlMessage::MediaControl {
+                command: MediaCommand::Stop,
+                argument: 0
+            })
         ));
 
         let mut invalid = Vec::new();
@@ -408,7 +422,13 @@ mod tests {
         assert_eq!(u16::from_be_bytes(bytes[17..19].try_into().unwrap()), 5);
         assert_eq!(&bytes[19..25], b"Artist");
         assert_eq!(&bytes[25..30], b"Title");
-        assert_eq!(u64::from_be_bytes(bytes[30..38].try_into().unwrap()), 12_345);
-        assert_eq!(u64::from_be_bytes(bytes[38..46].try_into().unwrap()), 67_890);
+        assert_eq!(
+            u64::from_be_bytes(bytes[30..38].try_into().unwrap()),
+            12_345
+        );
+        assert_eq!(
+            u64::from_be_bytes(bytes[38..46].try_into().unwrap()),
+            67_890
+        );
     }
 }

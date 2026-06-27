@@ -113,7 +113,10 @@ impl UdpServer {
                             frame_size: self.frame_size.load(Ordering::Relaxed),
                             ..self.config
                         };
-                        let _ = self.socket.send_to(&build_config_packet(config), addr).await;
+                        let _ = self
+                            .socket
+                            .send_to(&build_config_packet(config), addr)
+                            .await;
                         if let Some(packet) = self.latest_metadata_packet.lock().await.clone() {
                             let _ = self.socket.send_to(&packet, addr).await;
                         }

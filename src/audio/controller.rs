@@ -1,5 +1,5 @@
-use crate::audio::capture::{CaptureSession, PcmFrame};
 use crate::audio::backend::PulseManager;
+use crate::audio::capture::{CaptureSession, PcmFrame};
 use crate::control::messages::StreamConfig;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
@@ -97,7 +97,9 @@ impl AudioController {
 
                         if result.is_err() {
                             if let Err(err) = pulse.start_meters_if_stopped() {
-                                crate::log_warn!("audio warning: meters restart failed after start error: {err}");
+                                crate::log_warn!(
+                                    "audio warning: meters restart failed after start error: {err}"
+                                );
                             } else {
                                 crate::log_info!("audio: meters restarted after start failure");
                             }
@@ -112,7 +114,9 @@ impl AudioController {
 
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         if let Err(err) = pulse.start_meters_if_stopped() {
-                            crate::log_warn!("audio warning: meters restart failed after stop: {err}");
+                            crate::log_warn!(
+                                "audio warning: meters restart failed after stop: {err}"
+                            );
                         } else {
                             crate::log_info!("audio: meters restarted after stop");
                         }
