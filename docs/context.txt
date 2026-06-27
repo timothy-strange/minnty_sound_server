@@ -138,6 +138,15 @@ cargo build --features net_impairment_ui       — include network gap test UI
 cargo check --target x86_64-pc-windows-gnu    — Windows cross-check from Linux
 cargo test                                     — unit tests
 
+Native build requirements:
+- Rust stable toolchain
+- CMake
+- C/C++ compiler toolchain for the target platform (MSVC Build Tools on Windows,
+  GCC/Clang toolchain on Linux)
+
+Opus is built from vendored source and statically linked through the Rust `opus`
+dependency, so normal builds do not require a system-installed libopus package.
+
 
 NOTABLE DESIGN DECISIONS
 -------------------------

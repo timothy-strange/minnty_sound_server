@@ -11,7 +11,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 open = "5.0"
 bytes = "1.6"
-opus = "0.3"
+opus = { package = "opus2", version = "0.4", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 mdns-sd = "0.10"
 local-ip-address = "0.6"
 async-trait = "0.1"
