@@ -18,7 +18,8 @@ use std::{
 };
 
 use crate::control::http::{
-    CALIBRATION_STREAM_NAME, StartStreamRequest, StreamManager, StreamStatusResponse,
+    CALIBRATION_STREAM_NAME, CalibrationMode, StartStreamRequest, StreamManager,
+    StreamStatusResponse,
 };
 use crate::i18n;
 
@@ -60,12 +61,14 @@ struct TriggerGapRequest {
 struct SettingsResponse {
     frame_duration_ms: u32,
     change_server_volume_from_clients: bool,
+    calibration_mode: String,
 }
 
 #[derive(Deserialize)]
 struct SetSettingsRequest {
     frame_duration_ms: Option<u32>,
     change_server_volume_from_clients: Option<bool>,
+    calibration_mode: Option<String>,
 }
 
 async fn index() -> Html<&'static str> {
@@ -188,6 +191,7 @@ async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     Json(SettingsResponse {
         frame_duration_ms: state.stream.get_frame_duration_ms(),
         change_server_volume_from_clients: state.stream.change_server_volume_from_clients(),
+        calibration_mode: state.stream.get_calibration_mode().as_str().to_string(),
     })
 }
 
@@ -203,11 +207,21 @@ async fn set_settings(
     if let Some(enabled) = payload.change_server_volume_from_clients {
         state.stream.set_change_server_volume_from_clients(enabled);
     }
+    if let Some(mode) = payload.calibration_mode {
+        let mode = CalibrationMode::parse(&mode).ok_or_else(|| {
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "Unsupported calibration mode".to_string(),
+            )
+        })?;
+        state.stream.set_calibration_mode(mode);
+    }
     Ok((
         StatusCode::OK,
         Json(SettingsResponse {
             frame_duration_ms: state.stream.get_frame_duration_ms(),
             change_server_volume_from_clients: state.stream.change_server_volume_from_clients(),
+            calibration_mode: state.stream.get_calibration_mode().as_str().to_string(),
         }),
     ))
 }

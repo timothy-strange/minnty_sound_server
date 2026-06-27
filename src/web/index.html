@@ -599,6 +599,14 @@
         <span id="settingsServerVolumeLabel" class="settings-label"></span>
         <input id="serverVolumeToggle" class="settings-switch" type="checkbox" role="switch" />
       </label>
+      <div class="settings-row">
+        <span id="settingsCalibrationModeLabel" class="settings-label"></span>
+        <div id="calibrationModeToggle" class="theme-toggle" role="group" aria-label="Calibration stream mode">
+          <span class="theme-option" data-value="drums" tabindex="0" role="radio"></span>
+          <span class="theme-option" data-value="metronome" tabindex="0" role="radio"></span>
+          <div class="settings-slider"></div>
+        </div>
+      </div>
       <button id="advancedToggle" class="advanced-toggle"></button>
       <div id="advancedSettings" class="settings-advanced">
         <div class="settings-row">
@@ -626,6 +634,9 @@
     const settingsTitle = document.getElementById("settingsTitle");
     const settingsServerVolumeLabel = document.getElementById("settingsServerVolumeLabel");
     const serverVolumeToggle = document.getElementById("serverVolumeToggle");
+    const settingsCalibrationModeLabel = document.getElementById("settingsCalibrationModeLabel");
+    const calibrationModeToggle = document.getElementById("calibrationModeToggle");
+    const calibrationModeSlider = calibrationModeToggle.querySelector(".settings-slider");
     const advancedToggle = document.getElementById("advancedToggle");
     const advancedSettings = document.getElementById("advancedSettings");
     const settingsFrameDurationLabel = document.getElementById("settingsFrameDurationLabel");
@@ -673,6 +684,7 @@
     let lastFocusedBeforeSettings = null;
     let currentFrameDurationMs = 10;
     let currentServerVolumeFromClients = false;
+    let currentCalibrationMode = "drums";
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
     const tabChannelName = "minnty_ui_tabs";
@@ -720,6 +732,7 @@
     }
 
     const FRAME_DURATION_OPTIONS = [5, 10, 20];
+    const CALIBRATION_MODE_OPTIONS = ["drums", "metronome"];
 
     function setFrameDurationUi(ms) {
       currentFrameDurationMs = ms;
@@ -735,6 +748,15 @@
       serverVolumeToggle.checked = currentServerVolumeFromClients;
     }
 
+    function setCalibrationModeUi(mode) {
+      currentCalibrationMode = CALIBRATION_MODE_OPTIONS.includes(mode) ? mode : "drums";
+      const index = Math.max(0, CALIBRATION_MODE_OPTIONS.indexOf(currentCalibrationMode));
+      calibrationModeSlider.style.transform = `translateX(${index * 100}%)`;
+      calibrationModeToggle.querySelectorAll(".theme-option").forEach(opt => {
+        opt.style.color = opt.dataset.value === currentCalibrationMode ? "var(--fg)" : "var(--muted)";
+      });
+    }
+
     async function loadSettings() {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
@@ -742,6 +764,7 @@
         const data = await res.json();
         setFrameDurationUi(data.frame_duration_ms);
         setServerVolumeUi(data.change_server_volume_from_clients);
+        setCalibrationModeUi(data.calibration_mode);
       } catch (_) {}
     }
 
@@ -776,6 +799,20 @@
       } catch (_) {
         setServerVolumeUi(currentServerVolumeFromClients);
       }
+    }
+
+    async function setCalibrationMode(mode) {
+      if (mode === currentCalibrationMode) return;
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calibration_mode: mode }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setCalibrationModeUi(data.calibration_mode);
+      } catch (_) {}
     }
 
     function openSettings() {
@@ -870,6 +907,7 @@
       settingsClose.textContent = t("web.settings.close");
       settingsBtnText.textContent = t("web.settings.title");
       settingsServerVolumeLabel.textContent = t("web.settings.server_volume_from_clients_label");
+      settingsCalibrationModeLabel.textContent = t("web.settings.calibration_mode_label");
       advancedToggle.textContent = t("web.settings.advanced");
       settingsFrameDurationLabel.textContent = t("web.settings.frame_duration_label");
       settingsFrameDurationNote.textContent = t("web.settings.frame_duration_note");
@@ -879,6 +917,10 @@
       if (opt5) opt5.textContent = t("web.settings.frame_duration_5ms");
       if (opt10) opt10.textContent = t("web.settings.frame_duration_10ms");
       if (opt20) opt20.textContent = t("web.settings.frame_duration_20ms");
+      const optDrums = calibrationModeToggle.querySelector(".theme-option[data-value='drums']");
+      const optMetronome = calibrationModeToggle.querySelector(".theme-option[data-value='metronome']");
+      if (optDrums) optDrums.textContent = t("web.settings.calibration_mode_drums");
+      if (optMetronome) optMetronome.textContent = t("web.settings.calibration_mode_metronome");
       helpBtnText.textContent = t("web.buttons.help");
       helpTitle.textContent = t("web.help.title");
       helpClose.textContent = t("web.help.close");
@@ -1211,6 +1253,21 @@
         if (opt) {
           const ms = parseInt(opt.dataset.value);
           if (FRAME_DURATION_OPTIONS.includes(ms)) setFrameDuration(ms);
+        }
+      }
+    });
+    calibrationModeToggle.addEventListener("click", (e) => {
+      const opt = e.target.closest(".theme-option");
+      if (!opt) return;
+      const mode = opt.dataset.value;
+      if (CALIBRATION_MODE_OPTIONS.includes(mode)) setCalibrationMode(mode);
+    });
+    calibrationModeToggle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const opt = e.target.closest(".theme-option");
+        if (opt && CALIBRATION_MODE_OPTIONS.includes(opt.dataset.value)) {
+          setCalibrationMode(opt.dataset.value);
         }
       }
     });

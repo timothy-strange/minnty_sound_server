@@ -310,57 +310,52 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
-    use crate::control::messages::MediaCommand;
-    use crate::control::messages::NowPlayingMetadata;
-    use std::process::Command;
+    use crate::control::messages::{MediaCommand, NowPlayingMetadata, PlaybackStatus};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use windows::Media::Control::{
+        GlobalSystemMediaTransportControlsSession,
+        GlobalSystemMediaTransportControlsSessionManager,
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+    };
 
-    pub fn handle(command: MediaCommand, _argument: i64) {
-        let key = match command {
-            MediaCommand::PlayPause | MediaCommand::Play | MediaCommand::Pause => 0xB3u8,
-            MediaCommand::Next => 0xB0u8,
-            MediaCommand::Previous => 0xB1u8,
-            MediaCommand::Stop
-            | MediaCommand::SeekRelativeMs
-            | MediaCommand::SeekAbsoluteMs
-            | MediaCommand::VolumeUp
-            | MediaCommand::VolumeDown => {
-                crate::log_warn!("media control windows unsupported command={:?}", command);
-                return;
-            }
-        };
+    pub fn handle(command: MediaCommand, argument: i64) {
         crate::log_info!(
-            "media control windows command={:?} key=0x{:X}",
+            "media control windows command={:?} argument={}",
             command,
-            key
+            argument
         );
-        let script = format!(
-            "Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);' -Name Native -Namespace Win32; [Win32.Native]::keybd_event({key},0,0,[UIntPtr]::Zero); [Win32.Native]::keybd_event({key},0,2,[UIntPtr]::Zero)"
-        );
-        let result = Command::new("powershell")
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-Command")
-            .arg(script)
-            .status();
-        match result {
-            Ok(status) if status.success() => {
-                crate::log_info!(
-                    "media control windows complete command={:?} status={}",
-                    command,
-                    status
-                );
+        match dispatch_gsmtc(command, argument) {
+            Ok(handled) => crate::log_info!(
+                "media control windows complete command={:?} handled={}",
+                command,
+                handled
+            ),
+            Err(e) => crate::log_warn!("media control windows failed command={:?}: {}", command, e),
+        }
+    }
+
+    fn dispatch_gsmtc(command: MediaCommand, argument: i64) -> windows::core::Result<bool> {
+        let session = current_session()?;
+        match command {
+            MediaCommand::PlayPause => session.TryTogglePlayPauseAsync()?.join(),
+            MediaCommand::Play => session.TryPlayAsync()?.join(),
+            MediaCommand::Pause => session.TryPauseAsync()?.join(),
+            MediaCommand::Stop => session.TryStopAsync()?.join(),
+            MediaCommand::Next => session.TrySkipNextAsync()?.join(),
+            MediaCommand::Previous => session.TrySkipPreviousAsync()?.join(),
+            MediaCommand::SeekRelativeMs => {
+                let timeline = session.GetTimelineProperties()?;
+                let current = timeline.Position()?.Duration;
+                let target = current
+                    .saturating_add(argument.saturating_mul(10_000))
+                    .max(0);
+                session.TryChangePlaybackPositionAsync(target)?.join()
             }
-            Ok(status) => {
-                crate::log_warn!(
-                    "media control windows failed command={:?} status={}",
-                    command,
-                    status
-                );
+            MediaCommand::SeekAbsoluteMs => {
+                let target = argument.max(0).saturating_mul(10_000);
+                session.TryChangePlaybackPositionAsync(target)?.join()
             }
-            Err(e) => {
-                crate::log_warn!("media control windows failed command={:?}: {}", command, e);
-            }
+            MediaCommand::VolumeUp | MediaCommand::VolumeDown => Ok(false),
         }
     }
 
@@ -372,7 +367,85 @@ mod platform {
     }
 
     pub fn now_playing() -> Option<NowPlayingMetadata> {
-        None
+        read_now_playing().ok()
+    }
+
+    fn read_now_playing() -> windows::core::Result<NowPlayingMetadata> {
+        let session = current_session()?;
+        let media = session.TryGetMediaPropertiesAsync()?.join()?;
+        let timeline = session.GetTimelineProperties()?;
+        let playback = session.GetPlaybackInfo()?;
+
+        let title = media.Title()?.to_string_lossy().trim().to_string();
+        let artist = media.Artist()?.to_string_lossy().trim().to_string();
+        let playback_status = match playback.PlaybackStatus()? {
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing => {
+                PlaybackStatus::Playing
+            }
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Paused => {
+                PlaybackStatus::Paused
+            }
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Stopped
+            | GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed => {
+                PlaybackStatus::Stopped
+            }
+            _ => PlaybackStatus::Unknown,
+        };
+
+        Ok(NowPlayingMetadata {
+            artist,
+            title,
+            playback_status,
+            position_ms: estimated_position_ms(
+                timeline.Position()?,
+                timeline.LastUpdatedTime()?,
+                timeline.StartTime()?,
+                timeline.EndTime()?,
+                playback_status,
+            ),
+            duration_ms: duration_ms(timeline.StartTime()?, timeline.EndTime()?),
+            track_id: None,
+        })
+    }
+
+    fn current_session() -> windows::core::Result<GlobalSystemMediaTransportControlsSession> {
+        let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.join()?;
+        manager.GetCurrentSession()
+    }
+
+    fn estimated_position_ms(
+        position: windows::Foundation::TimeSpan,
+        last_updated: windows::Foundation::DateTime,
+        start: windows::Foundation::TimeSpan,
+        end: windows::Foundation::TimeSpan,
+        playback_status: PlaybackStatus,
+    ) -> Option<u64> {
+        let mut position_100ns = position.Duration;
+        if playback_status == PlaybackStatus::Playing {
+            let elapsed_100ns = windows_now_100ns().saturating_sub(last_updated.UniversalTime);
+            position_100ns = position_100ns.saturating_add(elapsed_100ns.max(0));
+        }
+        if end.Duration > start.Duration {
+            position_100ns = position_100ns.min(end.Duration - start.Duration);
+        }
+        (position_100ns >= 0).then_some(position_100ns as u64 / 10_000)
+    }
+
+    fn duration_ms(
+        start: windows::Foundation::TimeSpan,
+        end: windows::Foundation::TimeSpan,
+    ) -> Option<u64> {
+        (end.Duration > start.Duration).then_some((end.Duration - start.Duration) as u64 / 10_000)
+    }
+
+    fn windows_now_100ns() -> i64 {
+        const WINDOWS_TO_UNIX_EPOCH_100NS: i64 = 116_444_736_000_000_000;
+        let unix_100ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            / 100;
+        WINDOWS_TO_UNIX_EPOCH_100NS.saturating_add(unix_100ns.min(i64::MAX as u128) as i64)
     }
 }
 

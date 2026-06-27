@@ -7,7 +7,7 @@ use crate::testing::net_impairment::NetImpairmentController;
 use crate::transport::udp::UdpServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
@@ -27,12 +27,50 @@ pub struct StreamStatusResponse {
     pub udp_port: u16,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CalibrationMode {
+    Drums,
+    Metronome,
+}
+
+impl CalibrationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Drums => "drums",
+            Self::Metronome => "metronome",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "drums" => Some(Self::Drums),
+            "metronome" => Some(Self::Metronome),
+            _ => None,
+        }
+    }
+
+    fn code(self) -> u8 {
+        match self {
+            Self::Drums => 0,
+            Self::Metronome => 1,
+        }
+    }
+
+    fn from_code(code: u8) -> Self {
+        match code {
+            1 => Self::Metronome,
+            _ => Self::Drums,
+        }
+    }
+}
+
 pub struct StreamManager {
     audio: Arc<dyn AudioSource>,
     udp: Arc<UdpServer>,
     config: StreamConfig,
     server_state: Arc<ServerState>,
     frame_size: AtomicUsize,
+    calibration_mode: AtomicU8,
     impairment: Arc<NetImpairmentController>,
     state: Mutex<StreamRuntime>,
 }
@@ -64,6 +102,7 @@ impl StreamManager {
             udp,
             server_state,
             frame_size: AtomicUsize::new(config.frame_size),
+            calibration_mode: AtomicU8::new(CalibrationMode::Drums.code()),
             config,
             impairment,
             state: Mutex::new(StreamRuntime {
@@ -98,7 +137,9 @@ impl StreamManager {
                     .start_capture(sink.clone(), effective_config)
                     .await?
             }
-            StreamSource::Calibration => calibration_stream(effective_config),
+            StreamSource::Calibration => {
+                calibration_stream(effective_config, self.get_calibration_mode())
+            }
         };
         let mut encoder = match OpusEncoder::new(effective_config) {
             Ok(encoder) => encoder,
@@ -199,6 +240,14 @@ impl StreamManager {
         Ok(())
     }
 
+    pub fn get_calibration_mode(&self) -> CalibrationMode {
+        CalibrationMode::from_code(self.calibration_mode.load(Ordering::Relaxed))
+    }
+
+    pub fn set_calibration_mode(&self, mode: CalibrationMode) {
+        self.calibration_mode.store(mode.code(), Ordering::Relaxed);
+    }
+
     pub fn change_server_volume_from_clients(&self) -> bool {
         self.server_state.change_server_volume_from_clients()
     }
@@ -223,7 +272,10 @@ impl StreamManager {
     }
 }
 
-fn calibration_stream(config: StreamConfig) -> tokio::sync::mpsc::Receiver<PcmFrame> {
+fn calibration_stream(
+    config: StreamConfig,
+    mode: CalibrationMode,
+) -> tokio::sync::mpsc::Receiver<PcmFrame> {
     let (tx, rx) = tokio::sync::mpsc::channel(config.pcm_queue_depth);
     tokio::spawn(async move {
         let frame_duration =
@@ -232,7 +284,8 @@ fn calibration_stream(config: StreamConfig) -> tokio::sync::mpsc::Receiver<PcmFr
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let drum_kit = CalibrationDrumKit::new(config.sample_rate);
+        let drum_kit =
+            (mode == CalibrationMode::Drums).then(|| CalibrationDrumKit::new(config.sample_rate));
         let start = StdInstant::now();
         let mut frame_index = 0u64;
         let mut next_frame_at = Instant::now();
@@ -240,7 +293,12 @@ fn calibration_stream(config: StreamConfig) -> tokio::sync::mpsc::Receiver<PcmFr
         loop {
             tokio::time::sleep_until(next_frame_at).await;
             let timestamp_ms = base_wallclock_ms + start.elapsed().as_millis() as u64;
-            let samples = build_calibration_frame(config, frame_index, &drum_kit);
+            let samples = match (&drum_kit, mode) {
+                (Some(drum_kit), CalibrationMode::Drums) => {
+                    build_calibration_frame(config, frame_index, drum_kit)
+                }
+                _ => build_metronome_frame(config, frame_index),
+            };
             if tx
                 .send(PcmFrame {
                     timestamp_ms,
@@ -326,6 +384,45 @@ fn build_calibration_frame(
     samples
 }
 
+fn build_metronome_frame(config: StreamConfig, frame_index: u64) -> Vec<i16> {
+    const BPM: u64 = 60;
+    const BEEP_MS: u64 = 90;
+    const NORMAL_HZ: f64 = 880.0;
+    const ACCENT_HZ: f64 = 1_320.0;
+
+    let beat_frames = config.sample_rate as u64 * 60 / BPM;
+    let bar_frames = beat_frames * 4;
+    let beep_frames = frames_for_ms(config.sample_rate, BEEP_MS) as u64;
+    let channels = config.channels as usize;
+    let mut samples = vec![0i16; config.frame_size * channels];
+
+    for frame_offset in 0..config.frame_size {
+        let absolute_frame = frame_index * config.frame_size as u64 + frame_offset as u64;
+        let bar_pos_frames = absolute_frame % bar_frames;
+        let beat_index = bar_pos_frames / beat_frames;
+        let beat_pos_frames = bar_pos_frames % beat_frames;
+
+        if beat_pos_frames >= beep_frames {
+            continue;
+        }
+
+        let accent = beat_index == 3;
+        let frequency = if accent { ACCENT_HZ } else { NORMAL_HZ };
+        let amplitude = if accent { 0.82 } else { 0.62 };
+        let t = beat_pos_frames as f64 / config.sample_rate as f64;
+        let progress = beat_pos_frames as f64 / beep_frames as f64;
+        let envelope = (1.0 - progress).powi(2);
+        let sample = (std::f64::consts::TAU * frequency * t).sin() * envelope * amplitude;
+        let pcm = (sample.clamp(-1.0, 1.0) * i16::MAX as f64) as i16;
+
+        for channel in 0..channels {
+            samples[frame_offset * channels + channel] = pcm;
+        }
+    }
+
+    samples
+}
+
 fn generate_kick(sample_rate: u32) -> Vec<f64> {
     let len = frames_for_ms(sample_rate, 170);
     let mut samples = Vec::with_capacity(len);
@@ -347,7 +444,6 @@ fn generate_kick(sample_rate: u32) -> Vec<f64> {
 }
 
 fn generate_snare(sample_rate: u32) -> Vec<f64> {
-    eprintln!("SNARE v8");
     let len = frames_for_ms(sample_rate, 120);
     let fade_start = frames_for_ms(sample_rate, 100);
     let mut samples = Vec::with_capacity(len);
@@ -717,5 +813,45 @@ mod tests {
 
         assert_eq!(audio.start_calls.load(Ordering::SeqCst), 0);
         assert_eq!(audio.stop_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn calibration_mode_setting_round_trips() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let audio = Arc::new(MockAudio::new());
+        let audio_source: Arc<dyn AudioSource> = audio;
+        let udp = Arc::new(
+            UdpServer::bind(SocketAddr::from(([127, 0, 0, 1], 0)), config, 123)
+                .await
+                .unwrap(),
+        );
+        let manager = StreamManager::new(
+            audio_source,
+            udp,
+            config,
+            Arc::new(ServerState::new()),
+            Arc::new(NetImpairmentController::new()),
+        );
+
+        assert_eq!(manager.get_calibration_mode(), CalibrationMode::Drums);
+        manager.set_calibration_mode(CalibrationMode::Metronome);
+        assert_eq!(manager.get_calibration_mode(), CalibrationMode::Metronome);
+    }
+
+    #[test]
+    fn metronome_emphasizes_fourth_beat() {
+        let config = DEFAULT_STREAM_CONFIG;
+        let normal = build_metronome_frame(config, 0);
+        let fourth_beat_frame = (config.sample_rate as usize * 3) / config.frame_size;
+        let accented = build_metronome_frame(config, fourth_beat_frame as u64);
+
+        let normal_peak = normal.iter().map(|sample| sample.abs()).max().unwrap_or(0);
+        let accented_peak = accented
+            .iter()
+            .map(|sample| sample.abs())
+            .max()
+            .unwrap_or(0);
+
+        assert!(accented_peak > normal_peak);
     }
 }

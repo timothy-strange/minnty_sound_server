@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+};
 
 use crate::i18n;
 
@@ -34,6 +37,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::new()
         .with_tooltip(&i18n::text("launcher.tooltip"))
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .with_icon(icon)
         .build()?;
     crate::log_info!("launcher: tray icon created");
@@ -52,6 +56,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let _ = open::that("http://127.0.0.1:3000/");
 
     loop {
+        pump_windows_messages();
         reconcile_server_exit(&mut child_state.borrow_mut());
 
         while let Ok(event) = menu_rx.try_recv() {
@@ -83,6 +88,16 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn pump_windows_messages() {
+    unsafe {
+        let mut msg = std::mem::zeroed::<MSG>();
+        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
 }
 
@@ -425,5 +440,9 @@ const ICON_WIDTH: u32 = 32;
 const ICON_HEIGHT: u32 = 32;
 
 fn build_launcher_icon() -> Result<Icon, Box<dyn std::error::Error>> {
-    Ok(Icon::from_rgba(ICON_RGBA.to_vec(), ICON_WIDTH, ICON_HEIGHT)?)
+    Ok(Icon::from_rgba(
+        ICON_RGBA.to_vec(),
+        ICON_WIDTH,
+        ICON_HEIGHT,
+    )?)
 }

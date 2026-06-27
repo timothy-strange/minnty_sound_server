@@ -1204,6 +1204,8 @@ dependencies = [
  "tower-http",
  "tray-icon",
  "wasapi",
+ "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
