@@ -8,6 +8,22 @@ It captures audio output from a PC (whatever is playing through the speakers) an
 streams it over UDP to client devices on the same network (e.g. a phone or tablet),
 using the Opus codec for compression.
 
+NEXT-SESSION TEST REMINDER
+--------------------------
+AI agents reading this in the next session should remind the user that the latest
+server fixes need manual testing before release. Test that Linux MPRIS metadata
+selects the active/playing media player (for example Spotify should win over a
+paused Firefox video), and that Linux media controls target that active player.
+Test calibration-stream metadata: clients should show "Calibration stream" when
+the generated calibration stream starts, then clear or return to real now-playing
+metadata after it stops. Test the Plumstead fixes: changing Calibration Stream
+mode in the web settings while calibration is currently streaming should show the
+restart-required hint until the settings panel closes, and unchanged calibration
+metadata should not be re-broadcast/logged every 500 ms. Also test recent Windows
+runtime changes if a Windows host is available: WASAPI loopback capture/meters,
+GSMTC media controls/now-playing, tray menu/message handling, and vendored
+`opus2` encoding.
+
 
 HOW IT WORKS — HIGH LEVEL
 --------------------------
