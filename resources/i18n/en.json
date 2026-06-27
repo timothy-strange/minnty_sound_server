@@ -52,6 +52,7 @@
       "calibration_mode_label": "Calibration Stream",
       "calibration_mode_drums": "Drums",
       "calibration_mode_metronome": "Click",
+      "calibration_mode_restart_note": "This change will take effect after restarting the calibration stream.",
       "advanced": "Advanced",
       "frame_duration_label": "Frame Duration",
       "frame_duration_5ms": "5 ms",

@@ -165,12 +165,7 @@ impl UdpServer {
                         .await
                         .unwrap_or(None)
                 };
-                if metadata == last_metadata
-                    && !matches!(
-                        metadata.as_ref().map(|m| m.playback_status),
-                        Some(PlaybackStatus::Playing)
-                    )
-                {
+                if metadata == last_metadata && !should_repeat_now_playing(&metadata) {
                     continue;
                 }
                 let packet_metadata = metadata.clone().unwrap_or(NowPlayingMetadata {
@@ -393,6 +388,12 @@ fn calibration_now_playing_metadata() -> NowPlayingMetadata {
         duration_ms: None,
         track_id: None,
     }
+}
+
+pub(crate) fn should_repeat_now_playing(metadata: &Option<NowPlayingMetadata>) -> bool {
+    metadata.as_ref().is_some_and(|metadata| {
+        metadata.playback_status == PlaybackStatus::Playing && metadata.position_ms.is_some()
+    })
 }
 
 fn current_wall_clock_ms() -> u64 {

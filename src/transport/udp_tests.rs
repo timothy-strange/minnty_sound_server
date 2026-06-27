@@ -6,7 +6,7 @@ mod tests {
         MSG_TIME_SYNC_RESPONSE, MediaCommand, PlaybackStatus, VERSION, build_media_control_packet,
     };
     use crate::media_control::MediaController;
-    use crate::transport::udp::UdpServer;
+    use crate::transport::udp::{UdpServer, should_repeat_now_playing};
     use std::net::SocketAddr;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -339,5 +339,36 @@ mod tests {
             "Calibration stream"
         );
         assert_eq!(len, 19 + title_len + 16);
+    }
+
+    #[test]
+    fn now_playing_repeat_requires_playing_position() {
+        assert!(!should_repeat_now_playing(&None));
+        assert!(!should_repeat_now_playing(&Some(now_playing(
+            PlaybackStatus::Playing,
+            None
+        ))));
+        assert!(!should_repeat_now_playing(&Some(now_playing(
+            PlaybackStatus::Paused,
+            Some(1_000)
+        ))));
+        assert!(should_repeat_now_playing(&Some(now_playing(
+            PlaybackStatus::Playing,
+            Some(1_000)
+        ))));
+    }
+
+    fn now_playing(
+        playback_status: PlaybackStatus,
+        position_ms: Option<u64>,
+    ) -> crate::control::messages::NowPlayingMetadata {
+        crate::control::messages::NowPlayingMetadata {
+            artist: String::new(),
+            title: "Title".to_string(),
+            playback_status,
+            position_ms,
+            duration_ms: None,
+            track_id: None,
+        }
     }
 }

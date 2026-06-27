@@ -607,6 +607,7 @@
           <div class="settings-slider"></div>
         </div>
       </div>
+      <p id="settingsCalibrationModeRestartNote" class="settings-note" style="display: none;"></p>
       <button id="advancedToggle" class="advanced-toggle"></button>
       <div id="advancedSettings" class="settings-advanced">
         <div class="settings-row">
@@ -635,6 +636,7 @@
     const settingsServerVolumeLabel = document.getElementById("settingsServerVolumeLabel");
     const serverVolumeToggle = document.getElementById("serverVolumeToggle");
     const settingsCalibrationModeLabel = document.getElementById("settingsCalibrationModeLabel");
+    const settingsCalibrationModeRestartNote = document.getElementById("settingsCalibrationModeRestartNote");
     const calibrationModeToggle = document.getElementById("calibrationModeToggle");
     const calibrationModeSlider = calibrationModeToggle.querySelector(".settings-slider");
     const advancedToggle = document.getElementById("advancedToggle");
@@ -673,6 +675,7 @@
     let selectedSink = null;
     let selectedSinkIsActive = false;
     let isStreaming = false;
+    let streamingSink = null;
     let isDeactivated = false;
     let deactivationReason = null;
     let activeOutputCount = 0;
@@ -685,6 +688,7 @@
     let currentFrameDurationMs = 10;
     let currentServerVolumeFromClients = false;
     let currentCalibrationMode = "drums";
+    let calibrationModeRestartHintVisible = false;
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
     const tabChannelName = "minnty_ui_tabs";
@@ -757,6 +761,15 @@
       });
     }
 
+    function calibrationStreamIsRunning() {
+      return isStreaming && streamingSink === CALIBRATION_STREAM_NAME;
+    }
+
+    function setCalibrationModeRestartHintVisible(visible) {
+      calibrationModeRestartHintVisible = !!visible;
+      settingsCalibrationModeRestartNote.style.display = calibrationModeRestartHintVisible ? "block" : "none";
+    }
+
     async function loadSettings() {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
@@ -812,6 +825,9 @@
         if (!res.ok) return;
         const data = await res.json();
         setCalibrationModeUi(data.calibration_mode);
+        if (calibrationStreamIsRunning()) {
+          setCalibrationModeRestartHintVisible(true);
+        }
       } catch (_) {}
     }
 
@@ -820,12 +836,14 @@
       settingsModal.classList.add("open");
       advancedSettings.classList.remove("open");
       advancedToggle.classList.remove("open");
+      setCalibrationModeRestartHintVisible(false);
       settingsClose.focus();
       loadSettings();
     }
 
     function closeSettings() {
       settingsModal.classList.remove("open");
+      setCalibrationModeRestartHintVisible(false);
       if (lastFocusedBeforeSettings && typeof lastFocusedBeforeSettings.focus === "function") {
         lastFocusedBeforeSettings.focus();
       } else {
@@ -908,6 +926,7 @@
       settingsBtnText.textContent = t("web.settings.title");
       settingsServerVolumeLabel.textContent = t("web.settings.server_volume_from_clients_label");
       settingsCalibrationModeLabel.textContent = t("web.settings.calibration_mode_label");
+      settingsCalibrationModeRestartNote.textContent = t("web.settings.calibration_mode_restart_note");
       advancedToggle.textContent = t("web.settings.advanced");
       settingsFrameDurationLabel.textContent = t("web.settings.frame_duration_label");
       settingsFrameDurationNote.textContent = t("web.settings.frame_duration_note");
@@ -1324,6 +1343,7 @@
         const data = await res.json();
         statusFailureCount = 0;
         isStreaming = !!data.running;
+        streamingSink = data.sink || null;
         if (data.sink) {
           selectSink(data.sink, true);
         }
