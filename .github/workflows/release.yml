@@ -94,4 +94,4 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --title "Minnty Sound Server ${{ github.ref_name }}" --generate-notes
+        run: gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --title "Minnty Sound Server ${{ github.ref_name }}" --generate-notes
