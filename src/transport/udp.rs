@@ -178,17 +178,7 @@ impl UdpServer {
                 });
                 let (sequence, sent, errors) =
                     self.publish_now_playing_metadata(&packet_metadata).await;
-                crate::log_info!(
-                    "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} positionMs={:?} durationMs={:?} clients={} sendErrors={}",
-                    sequence,
-                    packet_metadata.artist,
-                    packet_metadata.title,
-                    packet_metadata.playback_status,
-                    packet_metadata.position_ms,
-                    packet_metadata.duration_ms,
-                    sent,
-                    errors
-                );
+                let _ = (sequence, sent, errors);
                 last_metadata = metadata;
             }
         });
@@ -196,18 +186,7 @@ impl UdpServer {
 
     pub async fn publish_calibration_now_playing(&self) {
         let metadata = calibration_now_playing_metadata();
-        let (sequence, sent, errors) = self.publish_now_playing_metadata(&metadata).await;
-        crate::log_info!(
-            "now playing changed sequence={} artist=\"{}\" title=\"{}\" status={:?} positionMs={:?} durationMs={:?} clients={} sendErrors={}",
-            sequence,
-            metadata.artist,
-            metadata.title,
-            metadata.playback_status,
-            metadata.position_ms,
-            metadata.duration_ms,
-            sent,
-            errors
-        );
+        let _ = self.publish_now_playing_metadata(&metadata).await;
     }
 
     pub async fn clear_now_playing(&self) {

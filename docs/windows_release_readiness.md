@@ -1,39 +1,30 @@
 # Windows Release Readiness Notes
 
-These notes summarize the current Windows release-readiness assessment for the public `v0.9.0` release and suggested follow-up before a final `1.0.0` release.
+Windows release-readiness items, excluding paid code signing:
 
-## Already Addressed
+1. Clean Windows 11 VM test is most important.
+   Test zip on machine without dev tools: launch, tray behavior, browser open, server child start/stop, quit cleanup, reboot/relaunch.
 
-- The repository is public, so users can inspect the source.
-- Release binaries are published through GitHub Releases.
-- Release artifacts are built from repository source by GitHub Actions, rather than from an opaque local machine build.
-- Release checksums are published.
-- The README explains that the Windows binary is currently unsigned.
-- The README documents expected Windows Firewall, SmartScreen, and Smart App Control behavior.
-- The README includes a privacy section stating that the server does not collect telemetry, analytics, crash reports, account data, personal information, or usage statistics.
-- The README explains that network activity is local-network focused: local UI, mDNS discovery, UDP control, and UDP audio sent to registered clients.
+2. Firewall behavior.
+   Verify first-run prompt, private-network allow path, deny/block path, README symptoms. Confirm clients fail clearly when blocked.
 
-For a public pre-`1.0` testing release, this is a reasonable baseline.
+3. SmartScreen / Smart App Control docs.
+   Since unsigned forever, README/release notes should be explicit: expected warnings, source/build provenance, checksums, local-network behavior.
 
-## Recommended Before Windows 1.0
+4. Defender / VirusTotal sanity check.
+   Not trust proof, but catches false positives before users do.
 
-- Code-sign the Windows executable if the project is intended for broad non-developer use. This is the main remaining Windows distribution gap. Without signing, SmartScreen and Smart App Control friction will remain.
-- Test the release zip on a clean Windows 11 machine or VM, not only on a development machine.
-- Confirm first-run Windows Firewall behavior on a clean system. Test both the allowed-private-network path and the blocked path, and make sure the README accurately describes the symptoms.
-- Run a basic Defender/VirusTotal sanity check for release artifacts. This is not a trust guarantee, but it can catch false positives early.
-- Consider GitHub artifact attestations or signed checksums for stronger release provenance.
-- Add human-readable release notes to each GitHub release. The release page should summarize the status, supported platforms, known limitations, and Windows-specific warnings.
+5. Release notes.
+   Each GitHub release should state Windows status, unsigned binary, firewall expectations, known limitations, and “tested on Windows 11” once true.
 
-## Logging Follow-Up
+6. Artifact provenance without signing.
+   Use checksums already; GitHub artifact attestations or signed checksums are free/cheap alternatives worth considering.
 
-The local source still contains `now playing changed` info logs in `src/transport/udp.rs`. They are not debug-only; the logging macros currently print unconditionally.
+7. Runtime logging.
+   Release info-log suppression is handled. Remaining warnings are acceptable; if Windows GUI subsystem hides console anyway, fine.
 
-These logs may not be visible when launching the Windows release normally because the release build uses the Windows GUI subsystem, but they still exist and can appear when run from a terminal or captured by a parent process.
+8. Real hardware audio test.
+   Need WASAPI loopback with common cases: speakers, headphones, Bluetooth, default-device changes, silence, app switching, sleep/wake.
 
-Suggested cleanup before `1.0`:
-
-- Keep broadcasting now-playing updates to clients while playback is active.
-- Stop logging position-only metadata updates.
-- Log only meaningful metadata changes, such as artist, title, status, duration, or track identity changes.
-
-This is not a blocker for `v0.9.0`, but it is worth cleaning before a polished release.
+9. Tray/server lifecycle.
+   Verify no orphan server process after Quit, crash/restart behavior sane, second launch does not spawn duplicate conflicting server.

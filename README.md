@@ -179,8 +179,8 @@ The release workflow builds:
 To create a release from a prepared commit:
 
 ```bash
-git tag v0.9.0
-git push origin v0.9.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 GitHub Actions then builds from that exact tag and publishes artifacts to GitHub Releases.
