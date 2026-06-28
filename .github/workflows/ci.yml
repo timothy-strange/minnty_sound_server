@@ -27,6 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --release
+      - run: cargo build --release
         env:
+          CFLAGS_x86_64_pc_windows_msvc: /MT
+          CXXFLAGS_x86_64_pc_windows_msvc: /MT
           RUSTFLAGS: -C target-feature=+crt-static

@@ -65,6 +65,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build release binary
         env:
+          CFLAGS_x86_64_pc_windows_msvc: /MT
+          CXXFLAGS_x86_64_pc_windows_msvc: /MT
           RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release
       - name: Package Windows zip
