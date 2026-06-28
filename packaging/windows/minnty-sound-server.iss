@@ -22,7 +22,6 @@ WizardStyle=modern
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
-LicenseFile={#RepoRoot}\LICENSE
 
 [Files]
 Source: "{#RepoRoot}\target\release\minnty_sound_server.exe"; DestDir: "{app}"; Flags: ignoreversion
