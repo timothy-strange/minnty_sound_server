@@ -24,6 +24,7 @@ Release builds are published on the GitHub Releases page.
 Expected release artifacts:
 
 - Linux AppImage: `minnty-sound-server-vX.Y.Z-linux-x86_64.AppImage`
+- Linux DEB: `minnty-sound-server-vX.Y.Z-linux-x86_64.deb`
 - Linux RPM: `minnty_sound_server-X.Y.Z-*.rpm`
 - Linux tarball: `minnty-sound-server-vX.Y.Z-linux-x86_64.tar.gz`
 - Windows zip: `minnty-sound-server-vX.Y.Z-windows-x86_64.zip`
@@ -47,6 +48,22 @@ Install the RPM using your distribution's package manager. For example:
 ```bash
 sudo dnf install ./minnty_sound_server-X.Y.Z-*.rpm
 ```
+
+### DEB
+
+Install the DEB using your distribution's package manager. For example:
+
+```bash
+sudo apt install ./minnty-sound-server-vX.Y.Z-linux-x86_64.deb
+```
+
+The DEB installs:
+
+- executable: `/usr/bin/minnty_sound_server`
+- desktop entry: `/usr/share/applications/minnty-sound-server.desktop`
+- icon: `/usr/share/icons/hicolor/scalable/apps/minnty-sound-server.svg`
+
+The RPM installs the same executable, desktop entry, and icon paths.
 
 ### Tarball
 
@@ -154,6 +171,7 @@ The release workflow builds:
 
 - Linux tarball
 - Linux RPM
+- Linux DEB
 - Linux AppImage
 - Windows zip containing `minnty_sound_server.exe`
 - SHA256 checksums
