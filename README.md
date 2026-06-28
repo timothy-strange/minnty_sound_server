@@ -6,9 +6,17 @@ The server includes a tray launcher and a browser-based control UI at `http://12
 
 ## Status
 
-Current version: `0.9.0`.
+Current version: `0.9.1`.
 
 This is a pre-1.0 release intended for public testing before the first stable `1.0.0` release.
+
+## Windows Runtime Requirement
+
+The Windows installer includes the Microsoft Visual C++ Redistributable 2015-2022 x64 and installs it automatically if needed.
+
+If you use the portable Windows zip instead, your system must already have that redistributable installed. If Windows reports that `VCRUNTIME140.dll` was not found, install the official Microsoft redistributable:
+
+https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ## Supported Platforms
 
@@ -27,6 +35,7 @@ Expected release artifacts:
 - Linux DEB: `minnty-sound-server-vX.Y.Z-linux-x86_64.deb`
 - Linux RPM: `minnty_sound_server-X.Y.Z-*.rpm`
 - Linux tarball: `minnty-sound-server-vX.Y.Z-linux-x86_64.tar.gz`
+- Windows installer: `minnty-sound-server-vX.Y.Z-windows-x86_64-setup.exe`
 - Windows zip: `minnty-sound-server-vX.Y.Z-windows-x86_64.zip`
 - Checksums: `SHA256SUMS.txt`
 
@@ -78,7 +87,9 @@ Linux builds require compatible system GTK/PulseAudio libraries at runtime.
 
 ## Windows Installation
 
-Download the Windows zip, extract it, then run `minnty_sound_server.exe`.
+Recommended: download and run the Windows installer. It installs Minnty Sound Server and the Microsoft Visual C++ Redistributable required by the Windows build.
+
+Portable option: download the Windows zip, extract it, then run `minnty_sound_server.exe`. The portable zip requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to already be installed.
 
 The Windows binary is currently unsigned. Windows may show warnings because the executable is new, unsigned, and opens local network sockets.
 
