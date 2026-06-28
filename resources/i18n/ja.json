@@ -1,0 +1,79 @@
+{
+  "launcher": {
+    "tooltip": "Minnty Sound Server",
+    "menu": {
+      "heading": "Minnty Sound Server",
+      "show_ui": "UIを表示",
+      "quit": "終了"
+    }
+  },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": {
+      "start_stream": "配信開始",
+      "stop_stream": "配信停止",
+      "help": "ヘルプ"
+    },
+    "labels": {
+      "streaming": "配信中"
+    },
+    "outputs": {
+      "title": "音声出力",
+      "hint_play_audio": "音声を再生すると、アクティブな出力が分かります。",
+      "hint_select_output": "配信する出力を選択してください。",
+      "hint_click_start": "開始ボタンをクリックすると配信します。",
+      "hint_selected_inactive": "選択した出力は非アクティブです。",
+      "hint_selected_inactive_play_audio": "選択した出力は非アクティブです。音声を再生すると、アクティブな出力が分かります。",
+      "no_outputs": "出力が見つかりません。"
+    },
+    "testing": {
+      "title": "ネットワーク切断テスト（一回のみ）",
+      "delay_50": "50 ms",
+      "delay_100": "100 ms",
+      "delay_200": "200 ms",
+      "delay_300": "300 ms",
+      "delay_500": "500 ms",
+      "delay_700": "700 ms",
+      "delay_1000": "1 s"
+    },
+    "tab": {
+      "deactivated_title": "無効化済み",
+      "deactivated_body_tab_takeover": "別のタブでMinnty UIがアクティブなため、このタブは無効化されました。",
+      "deactivated_body_process_exited": "Minntyプロセスが終了したため、このタブは無効化されました。"
+    },
+    "status": {
+      "offline_title": "Minntyは実行されていません。",
+      "offline_body": "トレイアイコンからMinntyを再起動してください。"
+    },
+    "settings": {
+      "title": "設定",
+      "close": "閉じる",
+      "language_label": "言語",
+      "language_auto": "自動",
+      "server_volume_from_clients_label": "クライアント側で音量を変更したときにサーバー音量も変更する",
+      "calibration_mode_label": "キャリブレーション配信",
+      "calibration_mode_drums": "ドラム",
+      "calibration_mode_metronome": "クリック",
+      "calibration_mode_restart_note": "この変更はキャリブレーション配信を再起動した後に反映されます。",
+      "advanced": "詳細",
+      "frame_duration_label": "フレーム長",
+      "frame_duration_5ms": "5 ms",
+      "frame_duration_10ms": "10 ms",
+      "frame_duration_20ms": "20 ms",
+      "frame_duration_note": "次回の配信開始時に反映されます。5 msは実験的です。最低遅延でUSBテザリング向きですが、一部の端末や混雑したWi-Fiでは音切れする場合があります。"
+    },
+    "help": {
+      "title": "手順",
+      "close": "閉じる",
+      "lines": [
+        "ブラウザーUIに音声出力が表示されます。音声を再生すると、どの出力がアクティブか分かります（アクティブなレベルメーターが動きます）。",
+        "同期調整には「Calibration Stream」を選択し、「配信開始」をクリックします。音楽と同じ配信経路でシンプルなビートを送信します。",
+        "配信するには、アクティブな出力を選択してから「配信開始」ボタンをクリックします。",
+        "配信中はボタンが「配信停止」に変わり、レベルメーターは無効になります。",
+        "配信を停止するには「配信停止」をクリックします。ボタンは「配信開始」に戻ります。",
+        "アプリを完全に終了するには、システムトレイメニューから「終了」を選択します（ブラウザーUIが開いている場合は無効化されます）。",
+        "ブラウザーUIはいつでも閉じられます。再度開くには、システムトレイメニューから「UIを表示」を選択します。"
+      ]
+    }
+  }
+}

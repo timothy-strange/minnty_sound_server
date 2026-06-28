@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "Tampilkan UI", "quit": "Keluar" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "Mulai Stream", "stop_stream": "Hentikan Stream", "help": "Bantuan" },
+    "labels": { "streaming": "Streaming" },
+    "outputs": { "title": "Output Audio", "hint_play_audio": "Putar audio untuk melihat output yang aktif.", "hint_select_output": "Pilih output untuk streaming.", "hint_click_start": "Klik mulai untuk streaming.", "hint_selected_inactive": "Output yang dipilih tidak aktif.", "hint_selected_inactive_play_audio": "Output yang dipilih tidak aktif. Putar audio untuk melihat output yang aktif.", "no_outputs": "Tidak ada output ditemukan." },
+    "testing": { "title": "Tes Jeda Jaringan (Sekali)", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 dtk" },
+    "tab": { "deactivated_title": "Dinonaktifkan", "deactivated_body_tab_takeover": "Tab ini dinonaktifkan karena UI Minnty aktif di tab lain.", "deactivated_body_process_exited": "Tab ini dinonaktifkan karena proses Minnty telah keluar." },
+    "status": { "offline_title": "Minnty tidak berjalan.", "offline_body": "Jalankan ulang Minnty dari ikon tray." },
+    "settings": { "title": "Pengaturan", "close": "Tutup", "language_label": "Bahasa", "language_auto": "Otomatis", "server_volume_from_clients_label": "Ubah volume server saat volume diubah di klien", "calibration_mode_label": "Stream Kalibrasi", "calibration_mode_drums": "Drum", "calibration_mode_metronome": "Klik", "calibration_mode_restart_note": "Perubahan ini berlaku setelah stream kalibrasi dimulai ulang.", "advanced": "Lanjutan", "frame_duration_label": "Durasi Frame", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "Berlaku pada start stream berikutnya. 5 ms bersifat eksperimental: latensi terendah, paling baik lewat tether USB; dapat tersendat pada beberapa perangkat atau Wi-Fi padat." },
+    "help": { "title": "Instruksi", "close": "Tutup", "lines": ["Output audio akan muncul di UI browser. Putar audio untuk melihat output yang aktif.", "Untuk kalibrasi sinkronisasi, pilih \"Calibration Stream\" dan klik \"Mulai Stream\".", "Untuk streaming, pilih output aktif lalu klik \"Mulai Stream\".", "Saat streaming, tombol berubah menjadi \"Hentikan Stream\" dan meter level dinonaktifkan.", "Untuk menghentikan streaming, klik \"Hentikan Stream\".", "Untuk keluar sepenuhnya, pilih \"Keluar\" dari menu tray sistem.", "UI browser dapat ditutup kapan saja dan dibuka lagi dari \"Tampilkan UI\" di menu tray."] }
+  }
+}

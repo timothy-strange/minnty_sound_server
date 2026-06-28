@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Minnty Sound Server
+Comment=Stream PC audio to Minnty clients on your local network
+Exec=minnty_sound_server
+Icon=minnty-sound-server
+Terminal=false
+Categories=Audio;Network;

@@ -1,0 +1,79 @@
+{
+  "launcher": {
+    "tooltip": "Minnty Sound Server",
+    "menu": {
+      "heading": "Minnty Sound Server",
+      "show_ui": "Afficher l’interface",
+      "quit": "Quitter"
+    }
+  },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": {
+      "start_stream": "Démarrer le flux",
+      "stop_stream": "Arrêter le flux",
+      "help": "Aide"
+    },
+    "labels": {
+      "streaming": "Diffusion"
+    },
+    "outputs": {
+      "title": "Sorties audio",
+      "hint_play_audio": "Lancez de l’audio pour voir quelles sorties sont actives.",
+      "hint_select_output": "Sélectionnez une sortie à diffuser.",
+      "hint_click_start": "Cliquez sur démarrer pour diffuser.",
+      "hint_selected_inactive": "La sortie sélectionnée est inactive.",
+      "hint_selected_inactive_play_audio": "La sortie sélectionnée est inactive. Lancez de l’audio pour voir quelles sorties sont actives.",
+      "no_outputs": "Aucune sortie trouvée."
+    },
+    "testing": {
+      "title": "Test de coupure réseau (unique)",
+      "delay_50": "50 ms",
+      "delay_100": "100 ms",
+      "delay_200": "200 ms",
+      "delay_300": "300 ms",
+      "delay_500": "500 ms",
+      "delay_700": "700 ms",
+      "delay_1000": "1 s"
+    },
+    "tab": {
+      "deactivated_title": "Désactivé",
+      "deactivated_body_tab_takeover": "Cet onglet a été désactivé parce que l’interface Minnty est active dans un autre onglet.",
+      "deactivated_body_process_exited": "Cet onglet a été désactivé parce que le processus Minnty s’est terminé."
+    },
+    "status": {
+      "offline_title": "Minnty ne fonctionne pas.",
+      "offline_body": "Relancez Minnty depuis l’icône de la zone de notification."
+    },
+    "settings": {
+      "title": "Paramètres",
+      "close": "Fermer",
+      "language_label": "Langue",
+      "language_auto": "Automatique",
+      "server_volume_from_clients_label": "Modifier le volume du serveur lorsque le volume change sur les clients",
+      "calibration_mode_label": "Flux de calibration",
+      "calibration_mode_drums": "Batterie",
+      "calibration_mode_metronome": "Clic",
+      "calibration_mode_restart_note": "Cette modification prendra effet après le redémarrage du flux de calibration.",
+      "advanced": "Avancé",
+      "frame_duration_label": "Durée de trame",
+      "frame_duration_5ms": "5 ms",
+      "frame_duration_10ms": "10 ms",
+      "frame_duration_20ms": "20 ms",
+      "frame_duration_note": "Prend effet au prochain démarrage du flux. 5 ms est expérimental : latence minimale, idéal en partage USB ; peut provoquer des coupures sur certains appareils ou réseaux Wi-Fi saturés."
+    },
+    "help": {
+      "title": "Instructions",
+      "close": "Fermer",
+      "lines": [
+        "Vos sorties audio devraient apparaître dans l’interface du navigateur. Lancez de l’audio pour voir quelle sortie est active (son vumètre bougera).",
+        "Pour calibrer la synchronisation, sélectionnez \"Calibration Stream\" puis cliquez sur \"Démarrer le flux\". Un rythme simple est envoyé par le même chemin que la musique.",
+        "Pour diffuser, sélectionnez la sortie active, puis cliquez sur \"Démarrer le flux\".",
+        "Pendant la diffusion, le bouton devient \"Arrêter le flux\" et les vumètres sont désactivés.",
+        "Pour arrêter la diffusion, cliquez sur \"Arrêter le flux\". Le bouton revient à \"Démarrer le flux\".",
+        "Pour quitter complètement l’application, choisissez \"Quitter\" dans le menu de la zone de notification (l’interface du navigateur sera désactivée si elle est encore ouverte).",
+        "Vous pouvez fermer l’interface du navigateur à tout moment et la rouvrir avec \"Afficher l’interface\" depuis le menu de la zone de notification."
+      ]
+    }
+  }
+}

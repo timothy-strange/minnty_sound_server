@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "UI'yi Göster", "quit": "Çık" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "Yayını Başlat", "stop_stream": "Yayını Durdur", "help": "Yardım" },
+    "labels": { "streaming": "Yayınlanıyor" },
+    "outputs": { "title": "Ses Çıkışları", "hint_play_audio": "Hangi çıkışların aktif olduğunu görmek için ses çalın.", "hint_select_output": "Yayınlamak için bir çıkış seçin.", "hint_click_start": "Yayınlamak için başlat düğmesine tıklayın.", "hint_selected_inactive": "Seçilen çıkış aktif değil.", "hint_selected_inactive_play_audio": "Seçilen çıkış aktif değil. Aktif çıkışları görmek için ses çalın.", "no_outputs": "Çıkış bulunamadı." },
+    "testing": { "title": "Ağ Boşluğu Testi (Tek Sefer)", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 sn" },
+    "tab": { "deactivated_title": "Devre Dışı", "deactivated_body_tab_takeover": "Minnty UI başka bir sekmede aktif olduğu için bu sekme devre dışı bırakıldı.", "deactivated_body_process_exited": "Minnty işlemi çıktığı için bu sekme devre dışı bırakıldı." },
+    "status": { "offline_title": "Minnty çalışmıyor.", "offline_body": "Minnty'yi tepsi simgesinden yeniden başlatın." },
+    "settings": { "title": "Ayarlar", "close": "Kapat", "language_label": "Dil", "language_auto": "Otomatik", "server_volume_from_clients_label": "İstemcilerde ses değiştiğinde sunucu sesini değiştir", "calibration_mode_label": "Kalibrasyon Yayını", "calibration_mode_drums": "Davul", "calibration_mode_metronome": "Klik", "calibration_mode_restart_note": "Bu değişiklik kalibrasyon yayını yeniden başlatıldıktan sonra geçerli olur.", "advanced": "Gelişmiş", "frame_duration_label": "Kare Süresi", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "Sonraki yayın başlangıcında geçerli olur. 5 ms deneyseldir: en düşük gecikme, USB tether için en iyi; bazı cihazlarda veya yoğun Wi-Fi'da takılabilir." },
+    "help": { "title": "Talimatlar", "close": "Kapat", "lines": ["Ses çıkışlarınız tarayıcı UI'sinde görünmelidir. Aktif çıkışı görmek için ses çalın.", "Senkron kalibrasyonu için \"Calibration Stream\" seçin ve \"Yayını Başlat\" düğmesine tıklayın.", "Yayınlamak için aktif çıkışı seçin, sonra \"Yayını Başlat\" düğmesine tıklayın.", "Yayın sırasında düğme \"Yayını Durdur\" olur ve seviye göstergeleri devre dışı kalır.", "Yayını durdurmak için \"Yayını Durdur\" düğmesine tıklayın.", "Uygulamadan tamamen çıkmak için sistem tepsisi menüsünden \"Çık\" seçin.", "Tarayıcı UI'sini istediğiniz zaman kapatabilir ve tepsi menüsünden \"UI'yi Göster\" ile yeniden açabilirsiniz."] }
+  }
+}

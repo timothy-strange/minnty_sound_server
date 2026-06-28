@@ -1,0 +1,79 @@
+{
+  "launcher": {
+    "tooltip": "Minnty Sound Server",
+    "menu": {
+      "heading": "Minnty Sound Server",
+      "show_ui": "UI anzeigen",
+      "quit": "Beenden"
+    }
+  },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": {
+      "start_stream": "Stream starten",
+      "stop_stream": "Stream stoppen",
+      "help": "Hilfe"
+    },
+    "labels": {
+      "streaming": "Streaming"
+    },
+    "outputs": {
+      "title": "Audioausgänge",
+      "hint_play_audio": "Spiele Audio ab, um aktive Ausgänge zu erkennen.",
+      "hint_select_output": "Wähle einen Ausgang zum Streamen aus.",
+      "hint_click_start": "Klicke auf Start, um zu streamen.",
+      "hint_selected_inactive": "Der ausgewählte Ausgang ist inaktiv.",
+      "hint_selected_inactive_play_audio": "Der ausgewählte Ausgang ist inaktiv. Spiele Audio ab, um aktive Ausgänge zu erkennen.",
+      "no_outputs": "Keine Ausgänge gefunden."
+    },
+    "testing": {
+      "title": "Netzwerkaussetzer-Test (einmalig)",
+      "delay_50": "50 ms",
+      "delay_100": "100 ms",
+      "delay_200": "200 ms",
+      "delay_300": "300 ms",
+      "delay_500": "500 ms",
+      "delay_700": "700 ms",
+      "delay_1000": "1 s"
+    },
+    "tab": {
+      "deactivated_title": "Deaktiviert",
+      "deactivated_body_tab_takeover": "Dieser Tab wurde deaktiviert, weil die Minnty-Oberfläche in einem anderen Tab aktiv ist.",
+      "deactivated_body_process_exited": "Dieser Tab wurde deaktiviert, weil der Minnty-Prozess beendet wurde."
+    },
+    "status": {
+      "offline_title": "Minnty läuft nicht.",
+      "offline_body": "Starte Minnty über das Tray-Symbol neu."
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "close": "Schließen",
+      "language_label": "Sprache",
+      "language_auto": "Automatisch",
+      "server_volume_from_clients_label": "Serverlautstärke ändern, wenn die Lautstärke auf Clients geändert wird",
+      "calibration_mode_label": "Kalibrierungsstream",
+      "calibration_mode_drums": "Drums",
+      "calibration_mode_metronome": "Klick",
+      "calibration_mode_restart_note": "Diese Änderung wird nach dem Neustart des Kalibrierungsstreams wirksam.",
+      "advanced": "Erweitert",
+      "frame_duration_label": "Frame-Dauer",
+      "frame_duration_5ms": "5 ms",
+      "frame_duration_10ms": "10 ms",
+      "frame_duration_20ms": "20 ms",
+      "frame_duration_note": "Wird beim nächsten Streamstart wirksam. 5 ms ist experimentell: niedrigste Latenz, am besten über USB-Tethering; kann auf manchen Geräten oder bei überlastetem WLAN stören."
+    },
+    "help": {
+      "title": "Anleitung",
+      "close": "Schließen",
+      "lines": [
+        "Die Audioausgänge sollten in der Browser-Oberfläche angezeigt werden. Spiele Audio ab, um zu sehen, welcher Ausgang aktiv ist (die aktive Pegelanzeige bewegt sich).",
+        "Für die Synchronisationskalibrierung wähle \"Calibration Stream\" und klicke auf \"Stream starten\". Dadurch wird ein einfacher Beat über denselben Streaming-Pfad wie Musik gesendet.",
+        "Zum Streamen wähle den aktiven Ausgang und klicke dann auf \"Stream starten\".",
+        "Während des Streamings wechselt die Schaltfläche zu \"Stream stoppen\", und die Pegelanzeigen werden deaktiviert.",
+        "Zum Stoppen des Streamings klicke auf \"Stream stoppen\". Die Schaltfläche wechselt zurück zu \"Stream starten\".",
+        "Um die App vollständig zu beenden, wähle \"Beenden\" im Tray-Menü (die Browser-Oberfläche wird deaktiviert, falls sie noch geöffnet ist).",
+        "Du kannst die Browser-Oberfläche jederzeit schließen und über \"UI anzeigen\" im Tray-Menü erneut öffnen."
+      ]
+    }
+  }
+}

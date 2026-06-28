@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "UI 표시", "quit": "종료" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "스트림 시작", "stop_stream": "스트림 중지", "help": "도움말" },
+    "labels": { "streaming": "스트리밍 중" },
+    "outputs": { "title": "오디오 출력", "hint_play_audio": "오디오를 재생하면 활성 출력이 표시됩니다.", "hint_select_output": "스트리밍할 출력을 선택하세요.", "hint_click_start": "스트리밍하려면 시작 버튼을 클릭하세요.", "hint_selected_inactive": "선택한 출력이 비활성 상태입니다.", "hint_selected_inactive_play_audio": "선택한 출력이 비활성 상태입니다. 오디오를 재생하면 활성 출력이 표시됩니다.", "no_outputs": "출력을 찾을 수 없습니다." },
+    "testing": { "title": "네트워크 지연 테스트 (1회)", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 s" },
+    "tab": { "deactivated_title": "비활성화됨", "deactivated_body_tab_takeover": "다른 탭에서 Minnty UI가 활성 상태라 이 탭이 비활성화되었습니다.", "deactivated_body_process_exited": "Minnty 프로세스가 종료되어 이 탭이 비활성화되었습니다." },
+    "status": { "offline_title": "Minnty가 실행 중이 아닙니다.", "offline_body": "트레이 아이콘에서 Minnty를 다시 실행하세요." },
+    "settings": { "title": "설정", "close": "닫기", "language_label": "언어", "language_auto": "자동", "server_volume_from_clients_label": "클라이언트에서 볼륨을 변경할 때 서버 볼륨도 변경", "calibration_mode_label": "보정 스트림", "calibration_mode_drums": "드럼", "calibration_mode_metronome": "클릭", "calibration_mode_restart_note": "이 변경 사항은 보정 스트림을 다시 시작한 후 적용됩니다.", "advanced": "고급", "frame_duration_label": "프레임 길이", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "다음 스트림 시작 시 적용됩니다. 5 ms는 실험적입니다: 지연 시간이 가장 낮고 USB 테더링에 적합하지만 일부 장치나 혼잡한 Wi-Fi에서 끊길 수 있습니다." },
+    "help": { "title": "사용 방법", "close": "닫기", "lines": ["브라우저 UI에 오디오 출력이 표시됩니다. 오디오를 재생하면 활성 출력의 레벨 미터가 움직입니다.", "동기화 보정을 위해 \"Calibration Stream\"을 선택하고 \"스트림 시작\"을 클릭하세요.", "스트리밍하려면 활성 출력을 선택한 뒤 \"스트림 시작\"을 클릭하세요.", "스트리밍 중에는 버튼이 \"스트림 중지\"로 바뀌고 레벨 미터가 비활성화됩니다.", "스트리밍을 중지하려면 \"스트림 중지\"를 클릭하세요.", "앱을 완전히 종료하려면 시스템 트레이 메뉴에서 \"종료\"를 선택하세요.", "브라우저 UI는 언제든 닫을 수 있으며 트레이 메뉴의 \"UI 표시\"로 다시 열 수 있습니다."] }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "顯示介面", "quit": "結束" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "開始串流", "stop_stream": "停止串流", "help": "說明" },
+    "labels": { "streaming": "串流中" },
+    "outputs": { "title": "音訊輸出", "hint_play_audio": "播放音訊以查看哪些輸出正在作用。", "hint_select_output": "選擇要串流的輸出。", "hint_click_start": "按一下開始按鈕進行串流。", "hint_selected_inactive": "選取的輸出未作用。", "hint_selected_inactive_play_audio": "選取的輸出未作用。播放音訊以查看哪些輸出正在作用。", "no_outputs": "找不到輸出。" },
+    "testing": { "title": "網路間隔測試（一次）", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 s" },
+    "tab": { "deactivated_title": "已停用", "deactivated_body_tab_takeover": "此分頁已停用，因為 Minnty 介面正在另一個分頁中作用。", "deactivated_body_process_exited": "此分頁已停用，因為 Minnty 程序已結束。" },
+    "status": { "offline_title": "Minnty 未執行。", "offline_body": "請從系統匣圖示重新啟動 Minnty。" },
+    "settings": { "title": "設定", "close": "關閉", "language_label": "語言", "language_auto": "自動", "server_volume_from_clients_label": "當用戶端變更音量時變更伺服器音量", "calibration_mode_label": "校準串流", "calibration_mode_drums": "鼓", "calibration_mode_metronome": "節拍", "calibration_mode_restart_note": "此變更會在重新啟動校準串流後生效。", "advanced": "進階", "frame_duration_label": "影格時長", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "在下一次開始串流時生效。5 ms 為實驗性選項：延遲最低，最適合 USB 網路共享；在某些裝置或壅塞 Wi-Fi 上可能會卡頓。" },
+    "help": { "title": "說明", "close": "關閉", "lines": ["瀏覽器介面中應顯示音訊輸出。播放音訊以查看哪個輸出正在作用。", "若要進行同步校準，請選擇 \"Calibration Stream\" 並按一下 \"開始串流\"。", "若要串流，請選擇作用中的輸出，然後按一下 \"開始串流\"。", "串流期間，按鈕會變為 \"停止串流\"，音量表會停用。", "若要停止串流，請按一下 \"停止串流\"。", "若要完全結束應用程式，請從系統匣選單選擇 \"結束\"。", "你可以隨時關閉瀏覽器介面，並從系統匣選單的 \"顯示介面\" 重新開啟。"] }
+  }
+}

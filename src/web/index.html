@@ -79,6 +79,13 @@
       letter-spacing: 0.01em;
     }
 
+    .version-suffix {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
     .streaming-tag {
       grid-column: 2;
       display: none;
@@ -123,6 +130,10 @@
       -webkit-user-select: none;
     }
 
+    .settings-row .theme-toggle {
+      min-width: 220px;
+    }
+
     .theme-toggle:focus-visible {
       outline: 2px solid var(--focus-border);
       outline-offset: 2px;
@@ -162,6 +173,15 @@
 
     [data-theme="dark"] .theme-slider {
       transform: translateX(100%);
+    }
+
+    [dir="rtl"][data-theme="dark"] .theme-slider {
+      transform: translateX(-100%);
+    }
+
+    [dir="rtl"] .theme-slider {
+      left: auto;
+      right: 0;
     }
 
     .help-link {
@@ -239,6 +259,7 @@
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
+      text-align: start;
       color: var(--muted);
       padding: 4px 6px;
       border-radius: 4px;
@@ -471,6 +492,22 @@
       cursor: pointer;
     }
 
+    .settings-select {
+      max-width: 180px;
+      padding: 6px 8px;
+      border: 1px solid var(--help-border);
+      border-radius: 8px;
+      background: var(--bar-bg);
+      color: var(--fg);
+      font: inherit;
+      text-align: start;
+    }
+
+    .settings-select:focus-visible {
+      outline: 2px solid var(--focus-border);
+      outline-offset: 2px;
+    }
+
     .advanced-toggle {
       margin-top: 8px;
       padding: 6px 0;
@@ -480,6 +517,10 @@
       text-align: left;
     }
 
+    [dir="rtl"] .advanced-toggle {
+      text-align: right;
+    }
+
     .advanced-toggle::before {
       content: "\25B8";
       display: inline-block;
@@ -487,7 +528,17 @@
       transition: transform 0.2s ease;
     }
 
+    [dir="rtl"] .advanced-toggle::before {
+      margin-right: 0;
+      margin-left: 6px;
+      transform: rotate(180deg);
+    }
+
     .advanced-toggle.open::before {
+      transform: rotate(90deg);
+    }
+
+    [dir="rtl"] .advanced-toggle.open::before {
       transform: rotate(90deg);
     }
 
@@ -518,6 +569,11 @@
       transition: transform 0.22s ease;
     }
 
+    [dir="rtl"] .settings-slider {
+      left: auto;
+      right: 0;
+    }
+
     .settings-note {
       margin: 4px 0 0;
       font-size: 12px;
@@ -526,6 +582,11 @@
 
     /* Frame-duration toggle has three equal-width options (5/10/20 ms). */
     #frameDurationToggle .theme-option {
+      flex: 1;
+      text-align: center;
+    }
+
+    #calibrationModeToggle .theme-option {
       flex: 1;
       text-align: center;
     }
@@ -595,6 +656,10 @@
         <h2 id="settingsTitle" class="help-title"></h2>
         <button id="settingsClose" class="help-close"></button>
       </div>
+      <div class="settings-row">
+        <label id="settingsLanguageLabel" class="settings-label" for="languageSelect"></label>
+        <select id="languageSelect" class="settings-select"></select>
+      </div>
       <label class="settings-row settings-toggle-row">
         <span id="settingsServerVolumeLabel" class="settings-label"></span>
         <input id="serverVolumeToggle" class="settings-switch" type="checkbox" role="switch" />
@@ -633,6 +698,8 @@
     const settingsModal = document.getElementById("settingsModal");
     const settingsClose = document.getElementById("settingsClose");
     const settingsTitle = document.getElementById("settingsTitle");
+    const settingsLanguageLabel = document.getElementById("settingsLanguageLabel");
+    const languageSelect = document.getElementById("languageSelect");
     const settingsServerVolumeLabel = document.getElementById("settingsServerVolumeLabel");
     const serverVolumeToggle = document.getElementById("serverVolumeToggle");
     const settingsCalibrationModeLabel = document.getElementById("settingsCalibrationModeLabel");
@@ -671,7 +738,10 @@
     const rows = [];
     const rowByName = new Map();
     let strings = {};
-    let features = { net_impairment_ui: false };
+    let availableLocales = [];
+    let currentLocale = "en";
+    let currentLanguageSetting = "auto";
+    let features = { version: "", net_impairment_ui: false };
     let selectedSink = null;
     let selectedSinkIsActive = false;
     let isStreaming = false;
@@ -692,6 +762,7 @@
     const tabId = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const activeTabStorageKey = "minnty_active_tab";
     const tabChannelName = "minnty_ui_tabs";
+    const languageStorageKey = "minnty_locale";
     let tabChannel = null;
     let levelsTimer = null;
     let statusTimer = null;
@@ -735,13 +806,53 @@
       return typeof node === "string" ? node : fallback;
     }
 
+    function sliderTranslate(index) {
+      const multiplier = document.documentElement.dir === "rtl" ? -1 : 1;
+      return `translateX(${index * 100 * multiplier}%)`;
+    }
+
+    function getSavedLanguageSetting() {
+      try {
+        return localStorage.getItem(languageStorageKey) || "auto";
+      } catch (_) {
+        return "auto";
+      }
+    }
+
+    function getRequestedLanguage() {
+      currentLanguageSetting = getSavedLanguageSetting();
+      if (currentLanguageSetting !== "auto") return currentLanguageSetting;
+      if (Array.isArray(navigator.languages) && navigator.languages.length > 0) {
+        return navigator.languages.join(",");
+      }
+      return navigator.language || "en";
+    }
+
+    function populateLanguageSelect() {
+      languageSelect.replaceChildren();
+
+      const auto = document.createElement("option");
+      auto.value = "auto";
+      auto.textContent = `${t("web.settings.language_auto", "Auto")} (${currentLocale.toUpperCase()})`;
+      languageSelect.appendChild(auto);
+
+      for (const locale of availableLocales) {
+        const option = document.createElement("option");
+        option.value = locale.code;
+        option.textContent = locale.name;
+        languageSelect.appendChild(option);
+      }
+
+      languageSelect.value = currentLanguageSetting;
+    }
+
     const FRAME_DURATION_OPTIONS = [5, 10, 20];
     const CALIBRATION_MODE_OPTIONS = ["drums", "metronome"];
 
     function setFrameDurationUi(ms) {
       currentFrameDurationMs = ms;
       const index = Math.max(0, FRAME_DURATION_OPTIONS.indexOf(ms));
-      frameDurationSlider.style.transform = `translateX(${index * 100}%)`;
+      frameDurationSlider.style.transform = sliderTranslate(index);
       frameDurationToggle.querySelectorAll(".theme-option").forEach(opt => {
         opt.style.color = parseInt(opt.dataset.value) === ms ? "var(--fg)" : "var(--muted)";
       });
@@ -755,7 +866,7 @@
     function setCalibrationModeUi(mode) {
       currentCalibrationMode = CALIBRATION_MODE_OPTIONS.includes(mode) ? mode : "drums";
       const index = Math.max(0, CALIBRATION_MODE_OPTIONS.indexOf(currentCalibrationMode));
-      calibrationModeSlider.style.transform = `translateX(${index * 100}%)`;
+      calibrationModeSlider.style.transform = sliderTranslate(index);
       calibrationModeToggle.querySelectorAll(".theme-option").forEach(opt => {
         opt.style.color = opt.dataset.value === currentCalibrationMode ? "var(--fg)" : "var(--muted)";
       });
@@ -887,12 +998,20 @@
 
     async function loadI18n() {
       try {
-        const res = await fetch("/api/i18n", { cache: "no-store" });
+        const locale = encodeURIComponent(getRequestedLanguage());
+        const res = await fetch(`/api/i18n?locale=${locale}`, { cache: "no-store" });
         if (!res.ok) return;
         const payload = await res.json();
         strings = payload.strings || {};
+        availableLocales = Array.isArray(payload.available_locales) ? payload.available_locales : [];
+        currentLocale = payload.locale || "en";
+        document.documentElement.lang = currentLocale;
+        document.documentElement.dir = payload.dir || "ltr";
       } catch (_) {
         strings = {};
+        availableLocales = [];
+        currentLocale = "en";
+        document.documentElement.dir = "ltr";
       }
     }
 
@@ -902,10 +1021,11 @@
         if (!res.ok) return;
         const payload = await res.json();
         features = {
+          version: payload.version || "",
           net_impairment_ui: !!payload.net_impairment_ui,
         };
       } catch (_) {
-        features = { net_impairment_ui: false };
+        features = { version: "", net_impairment_ui: false };
       }
     }
 
@@ -918,12 +1038,21 @@
     }
 
     function applyLocalizedStrings() {
-      const title = t("web.title");
+      const appTitle = t("web.title");
+      const title = features.version ? `${appTitle} v${features.version}` : appTitle;
       document.title = title;
-      pageTitle.textContent = title;
+      pageTitle.replaceChildren(document.createTextNode(appTitle));
+      if (features.version) {
+        const version = document.createElement("span");
+        version.className = "version-suffix";
+        version.textContent = ` v${features.version}`;
+        pageTitle.appendChild(version);
+      }
       settingsTitle.textContent = t("web.settings.title");
       settingsClose.textContent = t("web.settings.close");
       settingsBtnText.textContent = t("web.settings.title");
+      settingsLanguageLabel.textContent = t("web.settings.language_label");
+      populateLanguageSelect();
       settingsServerVolumeLabel.textContent = t("web.settings.server_volume_from_clients_label");
       settingsCalibrationModeLabel.textContent = t("web.settings.calibration_mode_label");
       settingsCalibrationModeRestartNote.textContent = t("web.settings.calibration_mode_restart_note");
@@ -968,6 +1097,8 @@
       for (const row of rows) {
         row.streamingTag.textContent = t("web.labels.streaming");
       }
+      setFrameDurationUi(currentFrameDurationMs);
+      setCalibrationModeUi(currentCalibrationMode);
       applyFeatureVisibility();
     }
 
@@ -1254,6 +1385,13 @@
     });
     serverVolumeToggle.addEventListener("change", () => {
       setServerVolumeFromClients(serverVolumeToggle.checked);
+    });
+    languageSelect.addEventListener("change", async () => {
+      currentLanguageSetting = languageSelect.value || "auto";
+      try { localStorage.setItem(languageStorageKey, currentLanguageSetting); } catch (_) {}
+      await loadI18n();
+      applyLocalizedStrings();
+      updateOutputsHint();
     });
     advancedToggle.addEventListener("click", () => {
       const open = advancedSettings.classList.toggle("open");

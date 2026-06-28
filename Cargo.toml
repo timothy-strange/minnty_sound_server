@@ -1,7 +1,8 @@
 [package]
 name = "minnty_sound_server"
-version = "0.1.0"
+version = "0.9.0"
 edition = "2024"
+license = "Apache-2.0"
 
 [dependencies]
 axum = "0.7"
@@ -34,3 +35,10 @@ windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 [features]
 default = []
 net_impairment_ui = []
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/minnty_sound_server", dest = "/usr/bin/minnty_sound_server", mode = "755" },
+  { source = "packaging/minnty-sound-server.desktop", dest = "/usr/share/applications/minnty-sound-server.desktop", mode = "644" },
+  { source = "packaging/minnty-sound-server.svg", dest = "/usr/share/icons/hicolor/scalable/apps/minnty-sound-server.svg", mode = "644" },
+]

@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "UI दिखाएं", "quit": "बंद करें" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "स्ट्रीम शुरू करें", "stop_stream": "स्ट्रीम रोकें", "help": "सहायता" },
+    "labels": { "streaming": "स्ट्रीमिंग" },
+    "outputs": { "title": "ऑडियो आउटपुट", "hint_play_audio": "सक्रिय आउटपुट देखने के लिए ऑडियो चलाएं।", "hint_select_output": "स्ट्रीम करने के लिए आउटपुट चुनें।", "hint_click_start": "स्ट्रीम करने के लिए शुरू करें पर क्लिक करें।", "hint_selected_inactive": "चुना गया आउटपुट निष्क्रिय है।", "hint_selected_inactive_play_audio": "चुना गया आउटपुट निष्क्रिय है। सक्रिय आउटपुट देखने के लिए ऑडियो चलाएं।", "no_outputs": "कोई आउटपुट नहीं मिला।" },
+    "testing": { "title": "नेटवर्क गैप टेस्ट (एक बार)", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 s" },
+    "tab": { "deactivated_title": "निष्क्रिय", "deactivated_body_tab_takeover": "यह टैब निष्क्रिय किया गया क्योंकि Minnty UI दूसरे टैब में सक्रिय है।", "deactivated_body_process_exited": "यह टैब निष्क्रिय किया गया क्योंकि Minnty प्रक्रिया बंद हो गई है।" },
+    "status": { "offline_title": "Minnty नहीं चल रहा है।", "offline_body": "ट्रे आइकन से Minnty फिर से शुरू करें।" },
+    "settings": { "title": "सेटिंग्स", "close": "बंद करें", "language_label": "भाषा", "language_auto": "स्वचालित", "server_volume_from_clients_label": "क्लाइंट पर वॉल्यूम बदलने पर सर्वर वॉल्यूम बदलें", "calibration_mode_label": "कैलिब्रेशन स्ट्रीम", "calibration_mode_drums": "ड्रम", "calibration_mode_metronome": "क्लिक", "calibration_mode_restart_note": "यह बदलाव कैलिब्रेशन स्ट्रीम दोबारा शुरू करने के बाद लागू होगा।", "advanced": "उन्नत", "frame_duration_label": "फ्रेम अवधि", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "अगली स्ट्रीम शुरू होने पर लागू होता है। 5 ms प्रयोगात्मक है: सबसे कम विलंब, USB टेथर पर बेहतर; कुछ उपकरणों या भीड़भाड़ वाले Wi-Fi पर रुकावट हो सकती है।" },
+    "help": { "title": "निर्देश", "close": "बंद करें", "lines": ["ब्राउज़र UI में आपके ऑडियो आउटपुट दिखने चाहिए। कौन सा आउटपुट सक्रिय है यह देखने के लिए ऑडियो चलाएं।", "सिंक कैलिब्रेशन के लिए \"Calibration Stream\" चुनें और \"स्ट्रीम शुरू करें\" क्लिक करें।", "स्ट्रीम करने के लिए सक्रिय आउटपुट चुनें, फिर \"स्ट्रीम शुरू करें\" क्लिक करें।", "स्ट्रीमिंग के दौरान बटन \"स्ट्रीम रोकें\" में बदल जाएगा और लेवल मीटर बंद हो जाएंगे।", "स्ट्रीम रोकने के लिए \"स्ट्रीम रोकें\" क्लिक करें।", "ऐप पूरी तरह बंद करने के लिए सिस्टम ट्रे मेनू से \"बंद करें\" चुनें।", "ब्राउज़र UI कभी भी बंद कर सकते हैं और ट्रे मेनू से \"UI दिखाएं\" चुनकर फिर खोल सकते हैं।"] }
+  }
+}

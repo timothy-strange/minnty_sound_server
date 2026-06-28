@@ -48,6 +48,8 @@
     "settings": {
       "title": "Settings",
       "close": "Close",
+      "language_label": "Language",
+      "language_auto": "Auto",
       "server_volume_from_clients_label": "Change volume on server when volume is changed on clients",
       "calibration_mode_label": "Calibration Stream",
       "calibration_mode_drums": "Drums",

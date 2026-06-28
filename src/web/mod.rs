@@ -2,7 +2,7 @@ const INDEX_HTML: &str = include_str!("index.html");
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::Html,
     response::IntoResponse,
@@ -48,7 +48,13 @@ struct ErrorResponse {
 
 #[derive(Serialize)]
 struct FeatureFlagsResponse {
+    version: &'static str,
     net_impairment_ui: bool,
+}
+
+#[derive(Deserialize)]
+struct I18nQuery {
+    locale: Option<String>,
 }
 
 #[cfg(feature = "net_impairment_ui")]
@@ -129,16 +135,20 @@ async fn api_levels(State(state): State<AppState>) -> impl IntoResponse {
     Json(levels)
 }
 
-async fn api_i18n() -> impl IntoResponse {
+async fn api_i18n(Query(query): Query<I18nQuery>) -> impl IntoResponse {
+    let (locale, strings) = i18n::strings_for(query.locale.as_deref());
     let payload = serde_json::json!({
-        "locale": i18n::locale(),
-        "strings": i18n::strings(),
+        "locale": locale,
+        "dir": i18n::direction(locale),
+        "available_locales": i18n::AVAILABLE_LOCALES,
+        "strings": strings,
     });
     Json(payload)
 }
 
 async fn api_features() -> impl IntoResponse {
     Json(FeatureFlagsResponse {
+        version: env!("CARGO_PKG_VERSION"),
         net_impairment_ui: cfg!(feature = "net_impairment_ui"),
     })
 }

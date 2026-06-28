@@ -1,0 +1,14 @@
+{
+  "launcher": { "tooltip": "Minnty Sound Server", "menu": { "heading": "Minnty Sound Server", "show_ui": "Hiển thị UI", "quit": "Thoát" } },
+  "web": {
+    "title": "Minnty Sound Server",
+    "buttons": { "start_stream": "Bắt đầu stream", "stop_stream": "Dừng stream", "help": "Trợ giúp" },
+    "labels": { "streaming": "Đang stream" },
+    "outputs": { "title": "Đầu ra âm thanh", "hint_play_audio": "Phát âm thanh để xem đầu ra nào đang hoạt động.", "hint_select_output": "Chọn đầu ra để stream.", "hint_click_start": "Nhấn bắt đầu để stream.", "hint_selected_inactive": "Đầu ra đã chọn không hoạt động.", "hint_selected_inactive_play_audio": "Đầu ra đã chọn không hoạt động. Phát âm thanh để xem đầu ra nào đang hoạt động.", "no_outputs": "Không tìm thấy đầu ra." },
+    "testing": { "title": "Kiểm tra gián đoạn mạng (một lần)", "delay_50": "50 ms", "delay_100": "100 ms", "delay_200": "200 ms", "delay_300": "300 ms", "delay_500": "500 ms", "delay_700": "700 ms", "delay_1000": "1 giây" },
+    "tab": { "deactivated_title": "Đã tắt", "deactivated_body_tab_takeover": "Tab này đã bị tắt vì UI Minnty đang hoạt động trong tab khác.", "deactivated_body_process_exited": "Tab này đã bị tắt vì tiến trình Minnty đã thoát." },
+    "status": { "offline_title": "Minnty không chạy.", "offline_body": "Khởi chạy lại Minnty từ biểu tượng khay hệ thống." },
+    "settings": { "title": "Cài đặt", "close": "Đóng", "language_label": "Ngôn ngữ", "language_auto": "Tự động", "server_volume_from_clients_label": "Thay đổi âm lượng máy chủ khi âm lượng thay đổi trên máy khách", "calibration_mode_label": "Stream hiệu chuẩn", "calibration_mode_drums": "Trống", "calibration_mode_metronome": "Click", "calibration_mode_restart_note": "Thay đổi này có hiệu lực sau khi khởi động lại stream hiệu chuẩn.", "advanced": "Nâng cao", "frame_duration_label": "Thời lượng frame", "frame_duration_5ms": "5 ms", "frame_duration_10ms": "10 ms", "frame_duration_20ms": "20 ms", "frame_duration_note": "Có hiệu lực ở lần bắt đầu stream tiếp theo. 5 ms là thử nghiệm: độ trễ thấp nhất, tốt nhất qua USB tether; có thể lỗi trên một số thiết bị hoặc Wi-Fi đông đúc." },
+    "help": { "title": "Hướng dẫn", "close": "Đóng", "lines": ["Bạn sẽ thấy các đầu ra âm thanh trong UI trình duyệt. Phát âm thanh để xem đầu ra nào đang hoạt động.", "Để hiệu chuẩn đồng bộ, chọn \"Calibration Stream\" và nhấn \"Bắt đầu stream\".", "Để stream, chọn đầu ra đang hoạt động rồi nhấn \"Bắt đầu stream\".", "Khi đang stream, nút đổi thành \"Dừng stream\" và các đồng hồ mức sẽ bị tắt.", "Để dừng stream, nhấn \"Dừng stream\".", "Để thoát hoàn toàn ứng dụng, chọn \"Thoát\" từ menu khay hệ thống.", "Bạn có thể đóng UI trình duyệt bất cứ lúc nào và mở lại bằng \"Hiển thị UI\" từ menu khay."] }
+  }
+}
