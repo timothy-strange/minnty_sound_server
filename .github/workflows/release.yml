@@ -85,6 +85,9 @@ jobs:
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging/windows/minnty-sound-server.iss" "/DArtifactVersion=${{ github.ref_name }}" "/DRepoRoot=${{ github.workspace }}"
+          Compress-Archive -Path "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.exe" -DestinationPath "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.zip"
+          Remove-Item "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.exe"
+          Remove-Item "dist/vc_redist.x64.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
