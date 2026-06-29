@@ -16,6 +16,7 @@ use crate::i18n;
 
 const LAUNCHER_GUARD_ADDR: &str = "127.0.0.1:40109";
 const UI_URL: &str = "http://127.0.0.1:3000/";
+const OPEN_UI_DEBOUNCE: Duration = Duration::from_secs(1);
 
 pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let _instance_guard = match TcpListener::bind(LAUNCHER_GUARD_ADDR) {
@@ -62,13 +63,14 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let show_ui_id = show_ui.id().clone();
     let quit_id = quit.id().clone();
     let child_state = Rc::new(RefCell::new(child));
-    crate::log_info!("launcher: ready (left-click tray icon or use menu)");
+    let mut last_open_ui: Option<Instant> = None;
+    crate::log_info!("launcher: ready (use tray menu to show UI or quit)");
 
     if let Err(err) = ensure_server_running(&mut child_state.borrow_mut(), &server_exe) {
         crate::log_warn!("launcher warning: unable to ensure server running at startup: {err}");
     }
     let _ = wait_for_server_ready(Duration::from_secs(2));
-    open_ui();
+    open_ui_debounced(&mut last_open_ui);
 
     loop {
         pump_windows_messages();
@@ -82,7 +84,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
                     crate::log_warn!("launcher warning: unable to ensure server running: {err}");
                 }
                 let _ = wait_for_server_ready(Duration::from_secs(2));
-                open_ui();
+                open_ui_debounced(&mut last_open_ui);
             } else if event.id == quit_id {
                 crate::log_info!("launcher: Quit clicked");
                 stop_server_child(&mut child_state.borrow_mut());
@@ -92,13 +94,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
 
         while let Ok(event) = tray_rx.try_recv() {
             if matches!(event, TrayIconEvent::Click { .. }) {
-                crate::log_info!("launcher: tray icon clicked -> Show UI");
-                if let Err(err) = ensure_server_running(&mut child_state.borrow_mut(), &server_exe)
-                {
-                    crate::log_warn!("launcher warning: unable to ensure server running: {err}");
-                }
-                let _ = wait_for_server_ready(Duration::from_secs(2));
-                open_ui();
+                crate::log_info!("launcher: tray icon clicked");
             }
         }
 
@@ -108,6 +104,17 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
 
 fn open_ui() {
     let _ = open::that(UI_URL);
+}
+
+fn open_ui_debounced(last_open_ui: &mut Option<Instant>) {
+    let now = Instant::now();
+    if last_open_ui.is_some_and(|last| now.duration_since(last) < OPEN_UI_DEBOUNCE) {
+        crate::log_info!("launcher: ignoring duplicate Show UI request");
+        return;
+    }
+
+    *last_open_ui = Some(now);
+    open_ui();
 }
 
 fn pump_windows_messages() {
