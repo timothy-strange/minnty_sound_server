@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::net::TcpStream;
+use std::io::ErrorKind;
+use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
 use std::thread;
@@ -13,7 +14,21 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::i18n;
 
+const LAUNCHER_GUARD_ADDR: &str = "127.0.0.1:40109";
+const UI_URL: &str = "http://127.0.0.1:3000/";
+
 pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
+    let _instance_guard = match TcpListener::bind(LAUNCHER_GUARD_ADDR) {
+        Ok(listener) => listener,
+        Err(err) if err.kind() == ErrorKind::AddrInUse => {
+            crate::log_info!("launcher: another launcher instance is already running");
+            let _ = wait_for_server_ready(Duration::from_secs(2));
+            open_ui();
+            return Ok(());
+        }
+        Err(err) => return Err(format!("failed to bind launcher guard: {err}").into()),
+    };
+
     let menu = Menu::new();
     let heading = MenuItem::new(&i18n::text("launcher.menu.heading"), false, None);
     let show_ui = MenuItem::new(&i18n::text("launcher.menu.show_ui"), true, None);
@@ -53,7 +68,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
         crate::log_warn!("launcher warning: unable to ensure server running at startup: {err}");
     }
     let _ = wait_for_server_ready(Duration::from_secs(2));
-    let _ = open::that("http://127.0.0.1:3000/");
+    open_ui();
 
     loop {
         pump_windows_messages();
@@ -67,7 +82,7 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
                     crate::log_warn!("launcher warning: unable to ensure server running: {err}");
                 }
                 let _ = wait_for_server_ready(Duration::from_secs(2));
-                let _ = open::that("http://127.0.0.1:3000/");
+                open_ui();
             } else if event.id == quit_id {
                 crate::log_info!("launcher: Quit clicked");
                 stop_server_child(&mut child_state.borrow_mut());
@@ -83,12 +98,16 @@ pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
                     crate::log_warn!("launcher warning: unable to ensure server running: {err}");
                 }
                 let _ = wait_for_server_ready(Duration::from_secs(2));
-                let _ = open::that("http://127.0.0.1:3000/");
+                open_ui();
             }
         }
 
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+fn open_ui() {
+    let _ = open::that(UI_URL);
 }
 
 fn pump_windows_messages() {
