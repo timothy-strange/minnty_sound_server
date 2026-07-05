@@ -39,3 +39,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ Redistributable..."; Flags: waituntilterminated
 Filename: "{app}\minnty_sound_server.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := '';
+  if MemoDirInfo <> '' then
+    Result := Result + MemoDirInfo + NewLine + NewLine;
+  if MemoTasksInfo <> '' then
+    Result := Result + MemoTasksInfo + NewLine + NewLine;
+  Result := Result + 'Additional components:' + NewLine +
+    Space + 'Microsoft Visual C++ Redistributable (x64) will be installed if not already present.';
+end;
