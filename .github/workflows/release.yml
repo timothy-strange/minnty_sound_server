@@ -33,10 +33,20 @@ jobs:
           Compress-Archive -Path "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.exe" -DestinationPath "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.zip"
           Remove-Item "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-setup.exe"
           Remove-Item "dist/vc_redist.x64.exe"
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $stage = "dist/portable"
+          New-Item -ItemType Directory -Force -Path $stage
+          Copy-Item "target/release/minnty_sound_server.exe" $stage
+          Copy-Item "README.md" $stage
+          Copy-Item "LICENSE" $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/minnty-sound-server-${{ github.ref_name }}-windows-x86_64-portable.zip"
+          Remove-Item -Recurse -Force $stage
       - uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
-          path: dist/*-setup.zip
+          path: dist/*.zip
 
   publish:
     name: Publish GitHub release
