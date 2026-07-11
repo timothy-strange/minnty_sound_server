@@ -463,6 +463,14 @@ mod platform {
         GlobalSystemMediaTransportControlsSessionManager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
     };
+    use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+    use windows::Win32::Foundation::E_FAIL;
+    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+    use windows::Win32::Media::Audio::{
+        DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+    };
+    use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, STGM_READ};
+    use windows::core::Error;
 
     pub fn handle(command: MediaCommand, argument: i64) {
         crate::log_info!(
@@ -505,11 +513,93 @@ mod platform {
         }
     }
 
-    pub fn adjust_volume(command: MediaCommand, _sink: Option<&str>) {
-        crate::log_warn!(
-            "server volume adjustment unsupported on Windows command={:?}",
-            command
-        );
+    pub fn adjust_volume(command: MediaCommand, sink: Option<&str>) {
+        match adjust_endpoint_volume(command, sink) {
+            Ok((volume, target)) => crate::log_info!(
+                "server volume adjusted command={:?} sink={} volume={:.0}%",
+                command,
+                target,
+                volume * 100.0
+            ),
+            Err(err) => crate::log_warn!(
+                "server volume adjust failed command={:?} sink={}: {}",
+                command,
+                sink.unwrap_or("@DEFAULT_RENDER_ENDPOINT@"),
+                err
+            ),
+        }
+    }
+
+    fn adjust_endpoint_volume(
+        command: MediaCommand,
+        sink: Option<&str>,
+    ) -> windows::core::Result<(f32, String)> {
+        let delta = match command {
+            MediaCommand::VolumeUp => 0.05,
+            MediaCommand::VolumeDown => -0.05,
+            _ => return Err(Error::new(E_FAIL, "not a volume command")),
+        };
+
+        let _ = wasapi::initialize_mta().ok();
+        let enumerator: IMMDeviceEnumerator =
+            unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
+        let device = selected_render_device(&enumerator, sink)?;
+        let target = device_friendly_name(&device).unwrap_or_else(|_| {
+            sink.filter(|value| !value.is_empty())
+                .unwrap_or("@DEFAULT_RENDER_ENDPOINT@")
+                .to_string()
+        });
+        let endpoint: IAudioEndpointVolume = unsafe { device.Activate(CLSCTX_ALL, None)? };
+        let current = unsafe { endpoint.GetMasterVolumeLevelScalar()? };
+        let next = (current + delta).clamp(0.0, 1.0);
+        unsafe {
+            endpoint.SetMasterVolumeLevelScalar(next, std::ptr::null())?;
+        }
+        Ok((next, target))
+    }
+
+    fn selected_render_device(
+        enumerator: &IMMDeviceEnumerator,
+        sink: Option<&str>,
+    ) -> windows::core::Result<IMMDevice> {
+        if let Some(sink_name) = sink.filter(|value| !value.is_empty()) {
+            match render_device_by_name(enumerator, sink_name) {
+                Ok(device) => return Ok(device),
+                Err(err) => crate::log_warn!(
+                    "server volume sink lookup failed sink={}: {}; using default render endpoint",
+                    sink_name,
+                    err
+                ),
+            }
+        }
+
+        unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eConsole) }
+    }
+
+    fn render_device_by_name(
+        enumerator: &IMMDeviceEnumerator,
+        sink_name: &str,
+    ) -> windows::core::Result<IMMDevice> {
+        let collection = unsafe { enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)? };
+        let count = unsafe { collection.GetCount()? };
+
+        for index in 0..count {
+            let device = unsafe { collection.Item(index)? };
+            if device_friendly_name(&device).as_deref() == Ok(sink_name) {
+                return Ok(device);
+            }
+        }
+
+        Err(Error::new(
+            E_FAIL,
+            format!("render endpoint not found: {sink_name}"),
+        ))
+    }
+
+    fn device_friendly_name(device: &IMMDevice) -> windows::core::Result<String> {
+        let store = unsafe { device.OpenPropertyStore(STGM_READ)? };
+        let value = unsafe { store.GetValue(&PKEY_Device_FriendlyName)? };
+        Ok(value.to_string())
     }
 
     pub fn now_playing() -> Option<NowPlayingMetadata> {

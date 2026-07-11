@@ -767,7 +767,6 @@
     let tabChannel = null;
     let levelsTimer = null;
     let statusTimer = null;
-    const UI_BUILD_MARKER = "win-shutdown-test.1";
     const simulateNoOutputs = new URLSearchParams(window.location.search).get("simulate_no_outputs") === "1";
 
     function applyTheme(theme) {
@@ -1042,14 +1041,15 @@
 
     function applyLocalizedStrings() {
       const appTitle = t("web.title");
-      const displayVersion = features.version ? `${features.version}-${UI_BUILD_MARKER}` : UI_BUILD_MARKER;
-      const title = `${appTitle} v${displayVersion}`;
+      const title = features.version ? `${appTitle} v${features.version}` : appTitle;
       document.title = title;
       pageTitle.replaceChildren(document.createTextNode(appTitle));
-      const version = document.createElement("span");
-      version.className = "version-suffix";
-      version.textContent = ` v${displayVersion}`;
-      pageTitle.appendChild(version);
+      if (features.version) {
+        const version = document.createElement("span");
+        version.className = "version-suffix";
+        version.textContent = ` v${features.version}`;
+        pageTitle.appendChild(version);
+      }
       settingsTitle.textContent = t("web.settings.title");
       settingsClose.textContent = t("web.settings.close");
       settingsBtnText.textContent = t("web.settings.title");
