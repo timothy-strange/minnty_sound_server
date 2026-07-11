@@ -3,7 +3,7 @@ const INDEX_HTML: &str = include_str!("index.html");
 use axum::{
     Json, Router,
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Html,
     response::IntoResponse,
     routing::{get, post},
@@ -13,7 +13,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
 
@@ -33,6 +33,8 @@ pub struct MeterRef {
 struct AppState {
     meters: Arc<Vec<MeterRef>>,
     stream: Arc<StreamManager>,
+    deactivated: Arc<AtomicBool>,
+    udp_port: u16,
 }
 
 #[derive(Serialize)]
@@ -70,12 +72,22 @@ struct SettingsResponse {
     calibration_mode: String,
 }
 
+#[derive(Serialize)]
+struct AppStatusResponse {
+    running: bool,
+    sink: Option<String>,
+    udp_port: u16,
+    deactivated: bool,
+}
+
 #[derive(Deserialize)]
 struct SetSettingsRequest {
     frame_duration_ms: Option<u32>,
     change_server_volume_from_clients: Option<bool>,
     calibration_mode: Option<String>,
 }
+
+const LAUNCHER_DEACTIVATE_HEADER: &str = "x-minnty-launcher";
 
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
@@ -86,9 +98,12 @@ pub async fn run(
     meters: Vec<MeterRef>,
     stream: Arc<StreamManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let udp_port = stream.status().await.udp_port;
     let state = AppState {
         meters: Arc::new(meters),
         stream,
+        deactivated: Arc::new(AtomicBool::new(false)),
+        udp_port,
     };
 
     let app = Router::new()
@@ -99,6 +114,7 @@ pub async fn run(
         .route("/api/stream/start", post(start_stream))
         .route("/api/stream/stop", post(stop_stream))
         .route("/api/stream/status", get(stream_status))
+        .route("/api/app/deactivate", post(deactivate_app))
         .route("/api/settings", get(get_settings).post(set_settings));
 
     #[cfg(feature = "net_impairment_ui")]
@@ -193,8 +209,50 @@ async fn stop_stream(
 }
 
 async fn stream_status(State(state): State<AppState>) -> impl IntoResponse {
-    let status: StreamStatusResponse = state.stream.status().await;
+    let status = app_status(&state).await;
     (StatusCode::OK, Json(status))
+}
+
+async fn deactivate_app(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    if headers
+        .get(LAUNCHER_DEACTIVATE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        != Some("1")
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "unauthorized" })),
+        );
+    }
+
+    state.deactivated.store(true, Ordering::Relaxed);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!(deactivated_status(&state))),
+    )
+}
+
+async fn app_status(state: &AppState) -> AppStatusResponse {
+    if state.deactivated.load(Ordering::Relaxed) {
+        return deactivated_status(state);
+    }
+
+    let status = state.stream.status().await;
+    AppStatusResponse {
+        running: status.running,
+        sink: status.sink,
+        udp_port: status.udp_port,
+        deactivated: state.deactivated.load(Ordering::Relaxed),
+    }
+}
+
+fn deactivated_status(state: &AppState) -> AppStatusResponse {
+    AppStatusResponse {
+        running: false,
+        sink: None,
+        udp_port: state.udp_port,
+        deactivated: true,
+    }
 }
 
 async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {

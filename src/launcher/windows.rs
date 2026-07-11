@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
@@ -17,6 +17,9 @@ use crate::i18n;
 const LAUNCHER_GUARD_ADDR: &str = "127.0.0.1:40109";
 const UI_URL: &str = "http://127.0.0.1:3000/";
 const OPEN_UI_DEBOUNCE: Duration = Duration::from_secs(1);
+const SERVER_ADDR: &str = "127.0.0.1:3000";
+const SERVER_DEACTIVATE_PATH: &str = "/api/app/deactivate";
+const DEACTIVATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
 
 pub fn run_launcher() -> Result<(), Box<dyn std::error::Error>> {
     let _instance_guard = match TcpListener::bind(LAUNCHER_GUARD_ADDR) {
@@ -178,6 +181,10 @@ fn stop_server_child(child: &mut Option<Child>) {
         }
     }
 
+    if notify_server_deactivation() {
+        thread::sleep(DEACTIVATION_GRACE_PERIOD);
+    }
+
     if let Err(err) = child_proc.kill() {
         crate::log_warn!("launcher warning: failed to kill server child: {err}");
     }
@@ -188,7 +195,7 @@ fn stop_server_child(child: &mut Option<Child>) {
 }
 
 fn wait_for_server_ready(timeout: Duration) -> bool {
-    let addr: std::net::SocketAddr = match "127.0.0.1:3000".parse() {
+    let addr: std::net::SocketAddr = match SERVER_ADDR.parse() {
         Ok(addr) => addr,
         Err(_) => return false,
     };
@@ -201,6 +208,30 @@ fn wait_for_server_ready(timeout: Duration) -> bool {
         thread::sleep(Duration::from_millis(50));
     }
     false
+}
+
+fn notify_server_deactivation() -> bool {
+    let addr: std::net::SocketAddr = match SERVER_ADDR.parse() {
+        Ok(addr) => addr,
+        Err(_) => return false,
+    };
+
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(200)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    let request = format!(
+        "POST {SERVER_DEACTIVATE_PATH} HTTP/1.1\r\nHost: {SERVER_ADDR}\r\nX-Minnty-Launcher: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let _ = stream.flush();
+
+    let mut response = [0u8; 128];
+    stream.read(&mut response).is_ok()
 }
 
 #[rustfmt::skip]
