@@ -35,6 +35,8 @@ jobs:
           cp target/release/minnty_sound_server AppDir/usr/bin/
           cp packaging/minnty-sound-server.desktop AppDir/usr/share/applications/
           cp packaging/minnty-sound-server.svg AppDir/usr/share/icons/hicolor/scalable/apps/
+          cp packaging/minnty-sound-server.desktop AppDir/
+          cp packaging/minnty-sound-server.svg AppDir/minnty-sound-server.svg
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
