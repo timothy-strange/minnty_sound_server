@@ -66,7 +66,7 @@ jobs:
             --executable target/release/minnty_sound_server \
             --plugin gtk \
             --output appimage
-          mv ./*.AppImage "dist/minnty-sound-server-${VERSION}-linux-x86_64.AppImage"
+          mv Minnty_Sound_Server-x86_64.AppImage "dist/minnty-sound-server-${VERSION}-linux-x86_64.AppImage"
 
       - name: Inspect bundled binary linkage
         env:
