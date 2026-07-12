@@ -6,8 +6,6 @@ The server includes a tray launcher and a browser-based control UI at `http://12
 
 ## Status
 
-Current version: `0.9.1`.
-
 This is a pre-1.0 release intended for public testing before the first stable `1.0.0` release.
 
 ## Windows Runtime Requirement
@@ -20,10 +18,8 @@ https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ## Supported Platforms
 
-- Linux: PulseAudio capture, GTK tray launcher.
-- Windows: WASAPI loopback capture, tray launcher.
-
-Windows support should be tested on real Windows hardware before relying on it for a final release.
+- Linux: PulseAudio capture, GTK tray launcher, browser UI, LAN discovery, Opus streaming, media controls, and server volume control.
+- Windows: WASAPI loopback capture, tray launcher, browser UI, LAN discovery, Opus streaming, media controls, and server volume control.
 
 ## Downloads
 
@@ -36,7 +32,7 @@ Expected release artifacts:
 - Linux RPM: `minnty_sound_server-X.Y.Z-*.rpm`
 - Linux tarball: `minnty-sound-server-vX.Y.Z-linux-x86_64.tar.gz`
 - Windows installer zip: `minnty-sound-server-vX.Y.Z-windows-x86_64-setup.zip`
-- Windows zip: `minnty-sound-server-vX.Y.Z-windows-x86_64.zip`
+- Windows portable zip: `minnty-sound-server-vX.Y.Z-windows-x86_64-portable.zip`
 - Checksums: `SHA256SUMS.txt`
 
 ## Linux Installation
@@ -76,20 +72,20 @@ The RPM installs the same executable, desktop entry, and icon paths.
 
 ### Tarball
 
-Extract the tarball and run the binary:
+Extract the tarball and run the binary. The tarball does not install a desktop entry or icon.
 
 ```bash
 tar -xzf minnty-sound-server-vX.Y.Z-linux-x86_64.tar.gz
 ./minnty-sound-server-vX.Y.Z-linux-x86_64/minnty_sound_server
 ```
 
-Linux builds require compatible system GTK/PulseAudio libraries at runtime.
+Linux builds require compatible system GTK, PulseAudio, and D-Bus libraries at runtime.
 
 ## Windows Installation
 
-Recommended: download the Windows installer zip, extract it, then run the setup executable. It installs Minnty Sound Server and the Microsoft Visual C++ Redistributable required by the Windows build.
+Recommended: download the Windows installer zip, extract it, then run the setup executable. It installs Minnty Sound Server and the Microsoft Visual C++ Redistributable required by the Windows build if needed.
 
-Portable option: download the Windows zip, extract it, then run `minnty_sound_server.exe`. The portable zip requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to already be installed: https://aka.ms/vs/17/release/vc_redist.x64.exe
+Portable option: download the Windows portable zip, extract it, then run `minnty_sound_server.exe`. The portable zip requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to already be installed: https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 The Windows binary is currently unsigned. Windows may show warnings because the executable is new, unsigned, and opens local network sockets.
 
@@ -184,7 +180,8 @@ The release workflow builds:
 - Linux RPM
 - Linux DEB
 - Linux AppImage
-- Windows zip containing `minnty_sound_server.exe`
+- Windows installer zip
+- Windows portable zip containing `minnty_sound_server.exe`
 - SHA256 checksums
 
 To create a release from a prepared commit:

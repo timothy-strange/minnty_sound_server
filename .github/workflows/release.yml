@@ -29,6 +29,12 @@ jobs:
         run: cargo deb --no-build
       - name: Package RPM
         run: cargo generate-rpm
+      - name: Package Linux tarball
+        run: |
+          mkdir -p dist "dist/minnty-sound-server-${{ github.ref_name }}-linux-x86_64"
+          cp target/release/minnty_sound_server "dist/minnty-sound-server-${{ github.ref_name }}-linux-x86_64/"
+          cp README.md LICENSE "dist/minnty-sound-server-${{ github.ref_name }}-linux-x86_64/"
+          tar -czf "dist/minnty-sound-server-${{ github.ref_name }}-linux-x86_64.tar.gz" -C dist "minnty-sound-server-${{ github.ref_name }}-linux-x86_64"
       - name: Package AppImage
         run: |
           mkdir -p dist AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps
@@ -58,6 +64,7 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
+            dist/*.tar.gz
 
   windows:
     name: Build Windows installer
@@ -113,4 +120,9 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --title "Minnty Sound Server ${{ github.ref_name }}" --generate-notes
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --title "Minnty Sound Server ${{ github.ref_name }}" --generate-notes
+          fi
