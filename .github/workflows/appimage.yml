@@ -34,6 +34,8 @@ jobs:
             libxdo-dev \
             patchelf \
             pkg-config
+          apt-get install -y libayatana-appindicator3-dev libdbusmenu-gtk3-dev || \
+            apt-get install -y libappindicator3-dev libdbusmenu-gtk3-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -59,11 +61,28 @@ jobs:
           cp target/release/minnty_sound_server AppDir/usr/bin/
           cp packaging/minnty-sound-server.desktop AppDir/usr/share/applications/
           cp packaging/minnty-sound-server.svg AppDir/usr/share/icons/hicolor/scalable/apps/
+
+          LIBRARY_ARGS=""
+          for LIBRARY in \
+            libayatana-appindicator3.so.1 \
+            libayatana-ido3-0.4.so.0 \
+            libdbusmenu-gtk3.so.4 \
+            libdbusmenu-glib.so.4 \
+            libappindicator3.so.1 \
+            libindicator3.so.7
+          do
+            LIBRARY_PATH="$(ldconfig -p | awk -v library="${LIBRARY}" '$1 == library { print $NF; exit }')"
+            if [ -n "${LIBRARY_PATH}" ]; then
+              LIBRARY_ARGS="${LIBRARY_ARGS} --library ${LIBRARY_PATH}"
+            fi
+          done
+
           PATH="$PWD:$PATH" ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --desktop-file packaging/minnty-sound-server.desktop \
             --icon-file packaging/minnty-sound-server.svg \
             --executable target/release/minnty_sound_server \
+            ${LIBRARY_ARGS} \
             --plugin gtk \
             --output appimage
           mv Minnty_Sound_Server-x86_64.AppImage "dist/minnty-sound-server-${VERSION}-linux-x86_64.AppImage"
@@ -74,7 +93,18 @@ jobs:
         run: |
           chmod +x dist/*.AppImage
           dist/*.AppImage --appimage-extract >/dev/null
-          ldd squashfs-root/usr/bin/minnty_sound_server | tee dist/appimage-ldd-report.txt
+          {
+            ldd squashfs-root/usr/bin/minnty_sound_server
+            printf '\nBundled indicator libraries:\n'
+            for LIBRARY in \
+              squashfs-root/usr/lib/lib*appindicator* \
+              squashfs-root/usr/lib/lib*ayatana* \
+              squashfs-root/usr/lib/libdbusmenu* \
+              squashfs-root/usr/lib/libindicator*
+            do
+              [ -e "${LIBRARY}" ] && printf '%s\n' "${LIBRARY}"
+            done
+          } | tee dist/appimage-ldd-report.txt
 
       - uses: actions/upload-artifact@v4
         with:
