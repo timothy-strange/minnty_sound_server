@@ -57,19 +57,10 @@ jobs:
             SHORT_SHA="$(printf '%.7s' "${GITHUB_SHA}")"
             VERSION="manual-${SHORT_SHA}"
           fi
-          mkdir -p dist AppDir/usr/bin AppDir/usr/lib/gio/modules AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps
+          mkdir -p dist AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps
           cp target/release/minnty_sound_server AppDir/usr/bin/
           cp packaging/minnty-sound-server.desktop AppDir/usr/share/applications/
           cp packaging/minnty-sound-server.svg AppDir/usr/share/icons/hicolor/scalable/apps/
-
-          cat > AppDir/AppRun <<'EOF'
-          #!/bin/sh
-          HERE="${APPDIR:-$(cd "$(dirname "$0")" && pwd -P)}"
-          export GIO_MODULE_DIR="${HERE}/usr/lib/gio/modules"
-          export LD_LIBRARY_PATH="${HERE}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-          exec "${HERE}/usr/bin/minnty_sound_server" "$@"
-          EOF
-          chmod +x AppDir/AppRun
 
           LIBRARY_ARGS=""
           for LIBRARY in \
@@ -104,8 +95,6 @@ jobs:
           dist/*.AppImage --appimage-extract >/dev/null
           {
             ldd squashfs-root/usr/bin/minnty_sound_server
-            printf '\nAppRun GIO module isolation:\n'
-            grep -n 'GIO_MODULE_DIR' squashfs-root/AppRun || true
             printf '\nBundled indicator libraries:\n'
             for LIBRARY in \
               squashfs-root/usr/lib/lib*appindicator* \
