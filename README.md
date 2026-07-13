@@ -6,7 +6,7 @@ The server includes a tray launcher and a browser-based control UI at `http://12
 
 ## Status
 
-This is a pre-1.0 release intended for public testing before the first stable `1.0.0` release.
+Minnty Sound Server `1.0.0` is the first stable release for normal use on supported Windows and Linux systems.
 
 ## Windows Runtime Requirement
 
