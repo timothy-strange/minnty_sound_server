@@ -86,10 +86,93 @@ jobs:
           name: windows-artifacts
           path: dist/*.zip
 
+  appimage:
+    name: Build AppImage
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    steps:
+      - name: Install base tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl git wget
+
+      - uses: actions/checkout@v5
+
+      - name: Install build and packaging dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            cmake \
+            desktop-file-utils \
+            file \
+            libdbus-1-dev \
+            libgtk-3-dev \
+            libpulse-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config
+          apt-get install -y libayatana-appindicator3-dev libdbusmenu-gtk3-dev || \
+            apt-get install -y libappindicator3-dev libdbusmenu-gtk3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Download AppImage tooling
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy-x86_64.AppImage
+          wget -q https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh -O linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh
+
+      - name: Build AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          mkdir -p dist AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps
+          cp target/release/minnty_sound_server AppDir/usr/bin/
+          cp packaging/minnty-sound-server.desktop AppDir/usr/share/applications/
+          cp packaging/minnty-sound-server.svg AppDir/usr/share/icons/hicolor/scalable/apps/
+
+          LIBRARY_ARGS=""
+          for LIBRARY in \
+            libayatana-appindicator3.so.1 \
+            libayatana-ido3-0.4.so.0 \
+            libdbusmenu-gtk3.so.4 \
+            libdbusmenu-glib.so.4 \
+            libappindicator3.so.1 \
+            libindicator3.so.7
+          do
+            LIBRARY_PATH="$(ldconfig -p | awk -v library="${LIBRARY}" '$1 == library { print $NF; exit }')"
+            if [ -n "${LIBRARY_PATH}" ]; then
+              LIBRARY_ARGS="${LIBRARY_ARGS} --library ${LIBRARY_PATH}"
+            fi
+          done
+
+          PATH="$PWD:$PATH" ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --desktop-file packaging/minnty-sound-server.desktop \
+            --icon-file packaging/minnty-sound-server.svg \
+            --executable target/release/minnty_sound_server \
+            ${LIBRARY_ARGS} \
+            --plugin gtk \
+            --output appimage
+          mv Minnty_Sound_Server-x86_64.AppImage "dist/minnty-sound-server-${{ github.ref_name }}-linux-x86_64.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage-artifacts
+          path: dist/*.AppImage
+
   publish:
     name: Publish GitHub release
     runs-on: ubuntu-latest
-    needs: [linux, windows]
+    needs: [linux, windows, appimage]
     steps:
       - uses: actions/download-artifact@v4
         with:
