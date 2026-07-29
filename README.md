@@ -1,5 +1,7 @@
 # Minnty Sound Server
 
+Quick start guide: https://minnty.co.uk/minnty-sound/docs/quick-start.html
+
 Minnty Sound Server streams audio from a PC to Minnty client devices on the same local network. It captures the audio that is playing on the server computer, encodes it with Opus, and sends it over UDP to registered clients.
 
 The server includes a tray launcher and a browser-based control UI at `http://127.0.0.1:3000`.
